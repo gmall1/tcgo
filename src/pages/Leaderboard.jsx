@@ -1,8 +1,7 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowLeft, Crown, Loader2, Trophy } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Crown, Loader2, Trophy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import db from "@/lib/localDb";
 import BottomNav from "@/components/tcg/BottomNav";

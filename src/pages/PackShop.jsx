@@ -1,16 +1,14 @@
 import React, { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Gift, Loader2, Sparkles, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
-import db from "@/lib/localDb";
 import BottomNav from "@/components/tcg/BottomNav";
 import PageHeader from "@/components/tcg/PageHeader";
 import { PACK_TYPES, openPack } from "@/lib/packSystem";
-import { getCardById, hydrateCardsByIds } from "@/lib/cardCatalog";
 import { TypeIcon } from "@/lib/typeIcons";
 
 export default function PackShop() {

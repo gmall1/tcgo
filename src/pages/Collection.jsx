@@ -6,8 +6,8 @@ import BottomNav from "@/components/tcg/BottomNav";
 import PageHeader from "@/components/tcg/PageHeader";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { fetchCatalogCards, fetchExpansionSetsCached, getTypeStyle } from "@/lib/cardCatalog";
-import { TypeIcon, TypeDot, TYPE_META } from "@/lib/typeIcons";
+import { fetchCatalogCards, fetchExpansionSetsCached } from "@/lib/cardCatalog";
+import { TypeIcon, TYPE_META } from "@/lib/typeIcons";
 
 const SUPERTYPES = ["all", "pokemon", "trainer", "energy"];
 const TYPES = ["all","fire","water","grass","lightning","psychic","fighting","darkness","metal","dragon","fairy","colorless"];

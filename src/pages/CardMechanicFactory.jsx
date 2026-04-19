@@ -1,15 +1,15 @@
 import React, { useState, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { motion, AnimatePresence } from "framer-motion";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ChevronLeft, ChevronRight, Loader2, Plus, Save, Trash2, X } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Loader2, Plus, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
 import BottomNav from "@/components/tcg/BottomNav";
 import PageHeader from "@/components/tcg/PageHeader";
-import { fetchCatalogCards, getCardById } from "@/lib/cardCatalog";
+import { fetchCatalogCards } from "@/lib/cardCatalog";
 import { TypeIcon } from "@/lib/typeIcons";
 
 const MECHANIC_TAGS = [

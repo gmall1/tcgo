@@ -1,7 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { TypeIcon, StatusBadge, TYPE_META } from "@/lib/typeIcons";
-import { SPECIAL_CONDITIONS } from "@/lib/gameConstants";
 
 export default function ActivePokemonSlot({ pokemon, isOpponent, label, isMyTurn, actionMode, onClick }) {
   if (!pokemon) {

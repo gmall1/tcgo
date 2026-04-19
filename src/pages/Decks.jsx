@@ -8,7 +8,7 @@ import PageHeader from "@/components/tcg/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import db from "@/lib/localDb";
-import { TypeIcon, TYPE_META } from "@/lib/typeIcons";
+import { TypeIcon } from "@/lib/typeIcons";
 import { getTypeStyle } from "@/lib/cardCatalog";
 
 export default function Decks() {

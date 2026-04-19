@@ -9,7 +9,6 @@ import db from "@/lib/localDb";
 import {
   buildStarterDeck,
   getCardById,
-  getCardsByIds,
   getPokemonCards,
   getTypeStyle,
   hydrateCardsByIds,
@@ -20,9 +19,6 @@ import {
   performAttack,
   canAffordAttack,
   setActivePokemon,
-  playBasicToBench,
-  attachEnergy,
-  SPECIAL_CONDITIONS,
 } from "@/lib/gameEngine";
 import { performAITurn, getAICommentary } from "@/lib/aiOpponent";
 import { recordMatchResult, subscribeToRoom, syncGameState } from "@/lib/multiplayerSync";

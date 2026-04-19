@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Home, Layers, FolderOpen, Swords, Users, Settings, Trophy, Gift, Zap } from "lucide-react";
+import { Home, Layers, FolderOpen, Users, Settings, Trophy } from "lucide-react";
 
 const navItems = [
   { path: "/", icon: Home, label: "Home" },

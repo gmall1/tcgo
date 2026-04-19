@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/AuthContext";
 import db from "@/lib/localDb";
-import { buildStarterDeck } from "@/lib/cardCatalog";
 import { buildBalancedDeck, buildAggressiveDeck, buildStallDeck } from "@/lib/aiDeckBuilder";
 import { createRoom, joinRoom } from "@/lib/multiplayerSync";
 

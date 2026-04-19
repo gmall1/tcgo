@@ -1,10 +1,8 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Loader2, Music, Play, Plus, Trash2, Volume2, Volume1, VolumeX } from "lucide-react";
+import { ArrowLeft, Music, Play, Plus, Trash2, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
 import BottomNav from "@/components/tcg/BottomNav";
 

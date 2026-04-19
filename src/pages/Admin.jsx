@@ -1,16 +1,14 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, ChevronDown, ChevronUp, Edit2, Plus, Save, Trash2, X, Loader2, Bot, Layers, Shuffle, Sparkles, Hammer, Music } from "lucide-react";
+import { ArrowLeft, Edit2, Plus, Save, Trash2, Bot, Layers, Shuffle, Sparkles, Hammer, Music } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
 import { SAMPLE_CARDS } from "@/lib/cardData";
 import { TypeIcon } from "@/lib/typeIcons";
-import { getTypeStyle, getCardsByIds, getPokemonCards, getEnergyCards, buildStarterDeck, hydrateCardsByIds, getCardById, fetchExpansionSetsCached } from "@/lib/cardCatalog";
-import db from "@/lib/localDb";
+import { getTypeStyle, getPokemonCards, getEnergyCards, buildStarterDeck, getCardById } from "@/lib/cardCatalog";
 
 const ADMIN_KEY = "tcg_admin_config_v1";
 

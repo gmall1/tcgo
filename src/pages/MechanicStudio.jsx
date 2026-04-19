@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useState, useRef } from "react";
+import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -8,12 +8,8 @@ import {
   Play,
   Pause,
   Download,
-  RefreshCw,
   Check,
   X,
-  AlertCircle,
-  Settings,
-  Flame,
   Eye,
   Copy,
 } from "lucide-react";
