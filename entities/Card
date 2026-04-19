@@ -1,0 +1,86 @@
+{
+  "name": "Card",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Card name"
+    },
+    "card_type": {
+      "type": "string",
+      "enum": [
+        "pokemon",
+        "trainer",
+        "energy"
+      ],
+      "description": "Type of card"
+    },
+    "hp": {
+      "type": "number",
+      "description": "HP for Pokemon cards"
+    },
+    "energy_type": {
+      "type": "string",
+      "enum": [
+        "fire",
+        "water",
+        "grass",
+        "electric",
+        "psychic",
+        "fighting",
+        "dark",
+        "steel",
+        "fairy",
+        "dragon",
+        "normal",
+        "colorless"
+      ],
+      "description": "Pokemon or energy type"
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "basic",
+        "stage1",
+        "stage2",
+        "mega",
+        "vstar",
+        "vmax",
+        "ex",
+        "gx"
+      ],
+      "description": "Evolution stage"
+    },
+    "rarity": {
+      "type": "string",
+      "enum": [
+        "common",
+        "uncommon",
+        "rare",
+        "holo_rare",
+        "ultra_rare",
+        "secret_rare",
+        "full_art"
+      ],
+      "description": "Card rarity"
+    },
+    "set_name": {
+      "type": "string",
+      "description": "Which set this card belongs to"
+    },
+    "image_url": {
+      "type": "string",
+      "description": "Card image URL"
+    },
+    "attack1_name": {
+      "type": "string"
+    },
+    "attack1_damage": {
+      "type": "number"
+    },
+    "attack1_cost": {
+      "type": "number",
+      "description": "Energy cost for attack 1"
+    },
+    "attack2_name": {
+      "type": "string"

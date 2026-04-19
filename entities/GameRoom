@@ -1,0 +1,80 @@
+{
+  "name": "GameRoom",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "description": "Unique room code"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "unlimited",
+        "standard",
+        "ranked"
+      ],
+      "description": "Game mode"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "waiting",
+        "starting",
+        "active",
+        "finished"
+      ],
+      "default": "waiting"
+    },
+    "player1_id": {
+      "type": "string"
+    },
+    "player1_name": {
+      "type": "string"
+    },
+    "player1_deck": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Array of card IDs"
+    },
+    "player2_id": {
+      "type": "string"
+    },
+    "player2_name": {
+      "type": "string"
+    },
+    "player2_deck": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "game_state": {
+      "type": "string",
+      "description": "Serialized full game state JSON"
+    },
+    "turn": {
+      "type": "number",
+      "default": 1
+    },
+    "active_player": {
+      "type": "string",
+      "description": "player1 or player2"
+    },
+    "winner_id": {
+      "type": "string"
+    },
+    "last_action": {
+      "type": "string",
+      "description": "Serialized last action for sync"
+    },
+    "last_action_timestamp": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "mode"
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "name": "Match",
+  "type": "object",
+  "properties": {
+    "room_id": {
+      "type": "string"
+    },
+    "player1_id": {
+      "type": "string"
+    },
+    "player1_name": {
+      "type": "string"
+    },
+    "player2_id": {
+      "type": "string"
+    },
+    "player2_name": {
+      "type": "string"
+    },
+    "winner_id": {
+      "type": "string"
+    },
+    "loser_id": {
+      "type": "string"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "unlimited",
+        "standard",
+        "ranked"
+      ]
+    },
+    "turns": {
+      "type": "number"
+    },
+    "duration_seconds": {
+      "type": "number"
+    },
+    "p1_prize_cards_taken": {
+      "type": "number"
+    },
+    "p2_prize_cards_taken": {
+      "type": "number"
+    },
+    "forfeit": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "player1_id",
+    "player2_id",
+    "mode"
+  ]
+}

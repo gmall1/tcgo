@@ -1,0 +1,48 @@
+{
+  "name": "PlayerRank",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "username": {
+      "type": "string"
+    },
+    "elo": {
+      "type": "number",
+      "default": 1000
+    },
+    "rank_tier": {
+      "type": "string",
+      "enum": [
+        "bronze",
+        "silver",
+        "gold",
+        "platinum",
+        "diamond",
+        "master"
+      ],
+      "default": "bronze"
+    },
+    "wins": {
+      "type": "number",
+      "default": 0
+    },
+    "losses": {
+      "type": "number",
+      "default": 0
+    },
+    "win_streak": {
+      "type": "number",
+      "default": 0
+    },
+    "season": {
+      "type": "string",
+      "description": "e.g. 2026-S1"
+    }
+  },
+  "required": [
+    "user_id",
+    "username"
+  ]
+}
