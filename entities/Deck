@@ -1,0 +1,51 @@
+{
+  "name": "Deck",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Deck name"
+    },
+    "game_mode": {
+      "type": "string",
+      "enum": [
+        "unlimited",
+        "full_collection"
+      ],
+      "description": "Which game mode this deck is for"
+    },
+    "card_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Array of card IDs in the deck"
+    },
+    "cover_type": {
+      "type": "string",
+      "enum": [
+        "fire",
+        "water",
+        "grass",
+        "electric",
+        "psychic",
+        "fighting",
+        "dark",
+        "steel",
+        "fairy",
+        "dragon",
+        "normal",
+        "colorless"
+      ],
+      "description": "Primary type for deck cover display"
+    },
+    "card_count": {
+      "type": "number",
+      "description": "Number of cards in deck"
+    }
+  },
+  "required": [
+    "name",
+    "game_mode"
+  ]
+}
