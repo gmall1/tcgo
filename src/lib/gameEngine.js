@@ -182,6 +182,42 @@ export function isKnockedOut(playCard) {
   return playCard.def.hp && playCard.damage >= playCard.def.hp;
 }
 
+// ── Auto-promote the best bench Pokémon to Active when Active
+// is missing (or KO'd). Best = most remaining HP, then most
+// energy attached. Returns the updated playerState (pure).
+export function autoPromoteActive(playerState) {
+  if (!playerState) return playerState;
+  if (playerState.activePokemon && !isKnockedOut(playerState.activePokemon)) {
+    return playerState;
+  }
+  if (!playerState.bench || playerState.bench.length === 0) {
+    return playerState;
+  }
+  const scored = playerState.bench
+    .map((c) => ({
+      c,
+      hp: (c.def?.hp || 0) - (c.damage || 0),
+      energy: c.energyAttached?.length || 0,
+    }))
+    .sort((a, b) => b.hp - a.hp || b.energy - a.energy);
+  const chosen = scored[0].c;
+  return {
+    ...playerState,
+    activePokemon: { ...chosen, specialCondition: null },
+    bench: playerState.bench.filter((c) => c.instanceId !== chosen.instanceId),
+  };
+}
+
+// Run auto-promote for both players. Useful after any state mutation.
+export function autoPromoteAll(gs) {
+  if (!gs) return gs;
+  return {
+    ...gs,
+    player1: autoPromoteActive(gs.player1),
+    player2: autoPromoteActive(gs.player2),
+  };
+}
+
 // ── Count energy of a type attached ───────────────────────
 export function countEnergy(playCard, type = null) {
   if (!type) return playCard.energyAttached.length;
@@ -486,9 +522,26 @@ export function performAttack(gs, attackIndex) {
       const selfDmg = 30;
       newLog.push(`${attacker.def.name} hurt itself in confusion for ${selfDmg}!`);
       const newAttacker = { ...attacker, damage: attacker.damage + selfDmg };
-      ps.activePokemon = newAttacker;
-      newGs = endTurn({ ...newGs, [playerKey]: ps, [oppKey]: opp, log: newLog });
-      return newGs;
+      if (isKnockedOut(newAttacker)) {
+        newLog.push(`${newAttacker.def.name} was Knocked Out!`);
+        ps.discard = [...ps.discard, newAttacker, ...newAttacker.energyAttached];
+        if (newAttacker.toolAttached) ps.discard.push(newAttacker.toolAttached);
+        ps.activePokemon = null;
+        // Opponent takes prizes
+        const prizesTaken = getPrizesForKO(newAttacker);
+        const oppPrizes = opp.prizeCards.slice(0, prizesTaken);
+        opp.hand = [...opp.hand, ...oppPrizes];
+        opp.prizeCards = opp.prizeCards.slice(prizesTaken);
+        newLog.push(`${opp.name} took ${prizesTaken} Prize card(s)!`);
+      } else {
+        ps.activePokemon = newAttacker;
+      }
+      let confGs = autoPromoteAll({ ...newGs, [playerKey]: ps, [oppKey]: opp, log: newLog });
+      const confWin = checkWinConditions(confGs);
+      if (confWin) {
+        return { ...confGs, winner: confWin.winner, phase: "finished", log: [...confGs.log, `${confWin.winner} wins! ${confWin.reason}`] };
+      }
+      return endTurn(confGs);
     }
   }
 
@@ -509,31 +562,63 @@ export function performAttack(gs, attackIndex) {
   let newDefender = { ...defender, damage: defender.damage + finalDmg };
   opp.activePokemon = newDefender;
 
+  // ── Custom mechanic hook ─────────────────────────────────
+  // Attacks can reference a registered mechanic id (see
+  // src/lib/customMechanics.js) which runs after base damage.
+  // Supported keys: attack.custom_mechanic_id (single) or
+  // attack.custom_mechanics (array of { id, opts }).
+  const mechEntries = [];
+  if (attack.custom_mechanic_id) mechEntries.push({ id: attack.custom_mechanic_id, opts: attack.custom_mechanic_opts || {} });
+  if (Array.isArray(attack.custom_mechanics)) {
+    for (const m of attack.custom_mechanics) {
+      if (m?.id) mechEntries.push({ id: m.id, opts: m.opts || {} });
+    }
+  }
+  if (mechEntries.length) {
+    let mechGs = { ...gs, [playerKey]: ps, [oppKey]: opp };
+    for (const { id, opts } of mechEntries) {
+      try {
+        const result = resolveCustomMechanic(id, mechGs, playerKey, opts);
+        if (result && typeof result === "object") {
+          if (result.extraLog) newLog.push(String(result.extraLog));
+          // eslint-disable-next-line no-unused-vars
+          const { extraLog: _ignored, ...rest } = result;
+          mechGs = rest;
+        }
+      } catch (err) {
+        newLog.push(`Mechanic "${id}" failed: ${err.message}`);
+      }
+    }
+    ps = mechGs[playerKey];
+    opp = mechGs[oppKey];
+    // Refresh defender reference in case mechanic touched it
+    newDefender = opp.activePokemon || newDefender;
+  }
+
   // Check KO
-  if (isKnockedOut(newDefender)) {
+  if (newDefender && isKnockedOut(newDefender)) {
     newLog.push(`${newDefender.def.name} was Knocked Out!`);
     opp.discard = [...opp.discard, newDefender, ...newDefender.energyAttached];
     if (newDefender.toolAttached) opp.discard.push(newDefender.toolAttached);
     opp.activePokemon = null;
 
-    // Prize card — active player takes 1 (or 2 for EX/GX/V/VMAX/VSTAR)
+    // Prize card — attacker draws from THEIR OWN prize pile.
     const prizesTaken = getPrizesForKO(newDefender);
-    const prizesFromPile = opp.prizeCards.slice(0, prizesTaken);  // opponent's prizes go to attacker... wait
-    // Actually: attacker takes from THEIR OWN prize pile
     const myPrizes = ps.prizeCards.slice(0, prizesTaken);
     newLog.push(`${ps.name} took ${prizesTaken} Prize card(s)!`);
     ps.hand = [...ps.hand, ...myPrizes];
     ps.prizeCards = ps.prizeCards.slice(prizesTaken);
 
-    // If opponent has bench, they must send up a new active (handled by UI prompt)
     if (opp.bench.length > 0) {
       newLog.push(`${opp.name} must send up a new Active Pokémon.`);
     }
   }
 
-  ps.activePokemon = { ...ps.activePokemon, attackedThisTurn: true };
+  if (ps.activePokemon) {
+    ps.activePokemon = { ...ps.activePokemon, attackedThisTurn: true };
+  }
 
-  newGs = { ...newGs, [playerKey]: ps, [oppKey]: opp, log: newLog };
+  newGs = autoPromoteAll({ ...newGs, [playerKey]: ps, [oppKey]: opp, log: newLog });
 
   // Check win
   const winResult = checkWinConditions(newGs);
@@ -817,21 +902,40 @@ export function endTurn(gs) {
     retreatedThisTurn: false,
   };
 
-  // Apply between-turn effects for the NEXT player's active
+  // Apply between-turn effects for the NEXT player's active (poison/burn/etc).
   const btResult = applyBetweenTurnEffects(newGs[nextKey], newGs.log);
   newGs[nextKey] = btResult.playerState;
   newGs.log = btResult.log;
 
+  // Between-turn damage may have KO'd the next player's active. Handle KO +
+  // prizes + auto-promote here before handing the turn over.
+  const nextActive = newGs[nextKey].activePokemon;
+  if (nextActive && isKnockedOut(nextActive)) {
+    newGs.log = [...newGs.log, `${nextActive.def.name} was Knocked Out!`];
+    const nextPs = { ...newGs[nextKey] };
+    nextPs.discard = [...nextPs.discard, nextActive, ...(nextActive.energyAttached || [])];
+    if (nextActive.toolAttached) nextPs.discard.push(nextActive.toolAttached);
+    nextPs.activePokemon = null;
+    const attackerPs = { ...newGs[currentKey] };
+    const prizesTaken = getPrizesForKO(nextActive);
+    const myPrizes = attackerPs.prizeCards.slice(0, prizesTaken);
+    attackerPs.hand = [...attackerPs.hand, ...myPrizes];
+    attackerPs.prizeCards = attackerPs.prizeCards.slice(prizesTaken);
+    newGs.log = [...newGs.log, `${attackerPs.name} took ${prizesTaken} Prize card(s) (between-turn KO)!`];
+    newGs = { ...newGs, [nextKey]: nextPs, [currentKey]: attackerPs };
+  }
+
+  newGs = autoPromoteAll(newGs);
+
   // Next player draws a card
   if (newGs[nextKey].deck.length > 0) {
     newGs[nextKey] = drawCards(newGs[nextKey], 1);
-  } else {
-    // Deck out — win condition
-    const winKey = currentKey;
-    return { ...newGs, winner: winKey, phase: "finished", log: [...newGs.log, `${newGs[nextKey].name} decked out!`] };
+  } else if (newGs[nextKey].hand.length === 0) {
+    // Deck out — current player wins
+    return { ...newGs, winner: currentKey, phase: "finished", log: [...newGs.log, `${newGs[nextKey].name} decked out!`] };
   }
 
-  // Reset attack flags on active pokemon
+  // Reset attack flag on active Pokémon
   if (newGs[nextKey].activePokemon) {
     newGs[nextKey] = { ...newGs[nextKey], activePokemon: { ...newGs[nextKey].activePokemon, attackedThisTurn: false } };
   }
@@ -848,61 +952,6 @@ export function endTurn(gs) {
   };
 }
 
-// ── AI OPPONENT ────────────────────────────────────────────
-export function performAITurn(gs) {
-  let state = { ...gs };
-  const aiKey = state.activePlayer;
-  let ai = state[aiKey];
-
-  // 1. Play basics to bench
-  const basics = ai.hand.filter(c => c.def.supertype === "Pokémon" && c.def.stage === "basic");
-  for (const b of basics) {
-    if (ai.bench.length < 5) {
-      state = playBasicToBench(state, aiKey, b.instanceId);
-      ai = state[aiKey];
-    }
-  }
-
-  // 2. Set active if missing
-  if (!ai.activePokemon) {
-    const benchPoke = ai.bench[0];
-    if (benchPoke) {
-      state = setActivePokemon(state, aiKey, benchPoke.instanceId);
-      ai = state[aiKey];
-    }
-  }
-
-  // 3. Attach energy if possible
-  const energyInHand = ai.hand.filter(c => c.def.supertype === "Energy");
-  if (energyInHand.length > 0 && ai.activePokemon && !ai.energyAttachedThisTurn) {
-    state = attachEnergy(state, aiKey, energyInHand[0].instanceId, ai.activePokemon.instanceId);
-    ai = state[aiKey];
-  }
-
-  // 4. Play trainers (items only, no supporter if already used)
-  const items = ai.hand.filter(c => c.def.supertype === "Trainer" && c.def.isItem);
-  for (const item of items.slice(0, 2)) {
-    state = playTrainer(state, aiKey, item.instanceId, {});
-    ai = state[aiKey];
-  }
-
-  // 5. Attack — pick the highest damage attack we can afford
-  if (ai.activePokemon && ai.activePokemon.def.attacks?.length > 0) {
-    const attacks = ai.activePokemon.def.attacks;
-    let bestIdx = -1;
-    let bestDmg = -1;
-    attacks.forEach((atk, idx) => {
-      if (canAffordAttack(ai.activePokemon, atk) && atk.damageValue > bestDmg) {
-        bestDmg = atk.damageValue;
-        bestIdx = idx;
-      }
-    });
-    if (bestIdx >= 0) {
-      state = performAttack(state, bestIdx);
-      return state;
-    }
-  }
-
-  // 6. End turn if no attack
-  return endTurn(state);
-}
+// NOTE: The smarter `performAITurn` now lives in `./aiOpponent.js`. This file
+// intentionally does not re-export an AI driver so imports resolve to the
+// single source of truth.

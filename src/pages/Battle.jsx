@@ -14,6 +14,7 @@ import {
   hydrateCardsByIds,
 } from "@/lib/cardCatalog";
 import {
+  autoPromoteAll,
   createGameState,
   endTurn,
   performAttack,
@@ -21,7 +22,13 @@ import {
   setActivePokemon,
 } from "@/lib/gameEngine";
 import { performAITurn, getAICommentary } from "@/lib/aiOpponent";
-import { recordMatchResult, subscribeToRoom, syncGameState } from "@/lib/multiplayerSync";
+import {
+  fetchRoom,
+  recordMatchResult,
+  subscribeToRoom,
+  syncGameState,
+} from "@/lib/multiplayerSync";
+import { soundManager } from "@/lib/soundManager";
 
 const AI_NAME = "Trainer Sparky";
 const AI_DELAY_MS = 1400;
@@ -293,7 +300,12 @@ export default function Battle() {
   const [aiComment, setAiComment] = useState("");
   const [lastDamagePlayer, setLastDamagePlayer] = useState(null);
   const [lastDamageAI, setLastDamageAI] = useState(null);
+  const [turnBanner, setTurnBanner] = useState(null);
+  const [koFlash, setKoFlash] = useState(null);
   const recordedRef = useRef(false);
+  const lastSyncedTurnRef = useRef(0);
+  const lastLocalTurnRef = useRef(0);
+  const seedingGameStateRef = useRef(false);
 
   const opponentSide = playerSide === "player1" ? "player2" : "player1";
   const playerState = gameState?.[playerSide] || null;
@@ -303,6 +315,30 @@ export default function Battle() {
   const attacks = playerActive?.def?.attacks || [];
 
   useEffect(() => { db.auth.me().then(setUser).catch(() => {}); }, []);
+
+  // Seed the room's game_state once both decks are available. Both clients run
+  // this effect, but only player1 actually writes (player2 receives via sync).
+  const seedRoomGameState = useCallback(async (room) => {
+    if (!room || seedingGameStateRef.current) return;
+    if (room.game_state) return;
+    if (!room.player1_id || !room.player2_id) return;
+    if (!room.player1_deck?.length || !room.player2_deck?.length) return;
+    if (playerSide !== "player1") return;
+    seedingGameStateRef.current = true;
+    try {
+      const [p1Def, p2Def] = await Promise.all([
+        buildPlayerDef(room.player1_name, room.player1_deck),
+        buildPlayerDef(room.player2_name, room.player2_deck),
+      ]);
+      const gs = createGameState(p1Def, p2Def, mode);
+      lastLocalTurnRef.current = gs.turn;
+      lastSyncedTurnRef.current = gs.turn;
+      setGameState(gs);
+      await syncGameState(room.id, gs).catch(() => {});
+    } finally {
+      seedingGameStateRef.current = false;
+    }
+  }, [mode, playerSide]);
 
   useEffect(() => {
     let active = true;
@@ -324,26 +360,41 @@ export default function Battle() {
           return;
         }
         if (!roomId) { setError("No battle room provided."); setLoading(false); return; }
-        const room = await db.entities.GameRoom.get(roomId);
+        const room = await fetchRoom(roomId);
         if (!active) return;
         if (!room) { setError("Battle room not found."); setLoading(false); return; }
         setRoomData(room);
         if (room.game_state) {
+          lastLocalTurnRef.current = room.game_state.turn || 0;
+          lastSyncedTurnRef.current = room.game_state.turn || 0;
           setGameState(room.game_state);
-        } else if (room.player1_id && room.player2_id && playerSide === "player1") {
-          const [p1Def, p2Def] = await Promise.all([
-            buildPlayerDef(room.player1_name, room.player1_deck),
-            buildPlayerDef(room.player2_name, room.player2_deck),
-          ]);
-          const gs = createGameState(p1Def, p2Def, mode);
-          setGameState(gs);
-          await syncGameState(room.id, gs);
+        } else {
+          await seedRoomGameState(room);
         }
         setLoading(false);
         unsubscribe = subscribeToRoom(roomId, (upd) => {
           if (!active) return;
           setRoomData(upd);
-          if (upd?.game_state) setGameState(upd.game_state);
+          // Only adopt remote state if it's newer than our local copy OR if
+          // the remote thinks it's now OUR turn (opponent just made a move).
+          if (upd?.game_state) {
+            const remoteTurn = upd.game_state.turn || 0;
+            const remoteActive = upd.game_state.activePlayer;
+            const localTurn = lastLocalTurnRef.current;
+            const isFinished = upd.game_state.phase === "finished";
+            if (
+              isFinished ||
+              remoteTurn > localTurn ||
+              (remoteTurn === localTurn && remoteActive === playerSide)
+            ) {
+              lastLocalTurnRef.current = remoteTurn;
+              lastSyncedTurnRef.current = remoteTurn;
+              setGameState(upd.game_state);
+            }
+          } else {
+            // Room update without game_state yet — try to seed it.
+            seedRoomGameState(upd).catch(() => {});
+          }
         });
       } catch (err) {
         if (active) { setError(err.message || "Unable to load battle."); setLoading(false); }
@@ -351,7 +402,7 @@ export default function Battle() {
     };
     init();
     return () => { active = false; if (typeof unsubscribe === "function") unsubscribe(); };
-  }, [isAI, roomId, playerSide, mode]);
+  }, [isAI, roomId, playerSide, mode, seedRoomGameState]);
 
   // Auto-set active Pokémon from setup phase
   useEffect(() => {
@@ -380,16 +431,25 @@ export default function Battle() {
         const next = performAITurn(gameState);
         const newPlayerDmg = next[playerSide]?.activePokemon?.damage || 0;
         const dealt = newPlayerDmg - prevPlayerDmg;
-        if (dealt > 0) { setLastDamagePlayer(dealt); window.setTimeout(() => setLastDamagePlayer(null), 1200); }
+        if (dealt > 0) {
+          setLastDamagePlayer(dealt);
+          soundManager.damageTaken();
+          window.setTimeout(() => setLastDamagePlayer(null), 1200);
+        }
         const playerKO = !next[playerSide]?.activePokemon && gameState[playerSide]?.activePokemon;
+        if (playerKO) {
+          setKoFlash(playerSide);
+          soundManager.pokemonKO();
+          window.setTimeout(() => setKoFlash(null), 900);
+        }
         const aiActive = next[opponentSide]?.activePokemon;
-        const prevCond = gameState[opponentSide]?.activePokemon?.specialCondition;
         const hasStatus = next[playerSide]?.activePokemon?.specialCondition !== gameState[playerSide]?.activePokemon?.specialCondition;
         setAiComment(getAICommentary(Boolean(playerKO), hasStatus, aiActive?.def?.name || "Sparky"));
+        lastLocalTurnRef.current = next.turn || 0;
         setGameState(next);
       } catch (err) {
         console.error("AI turn error:", err);
-        try { setGameState(endTurn(gameState)); } catch {}
+        try { setGameState(endTurn(gameState)); } catch { /* ignore */ }
       } finally {
         setAiThinking(false);
         window.setTimeout(() => setAiComment(""), 2800);
@@ -397,6 +457,23 @@ export default function Battle() {
     }, AI_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [gameState, isAI, opponentSide, playerSide]);
+
+  // Turn change banner + turn-end sound
+  useEffect(() => {
+    if (!gameState || gameState.phase !== "main") return;
+    const who = gameState.activePlayer === playerSide ? "Your Turn" : `${gameState[opponentSide]?.name || "Opponent"}'s Turn`;
+    setTurnBanner({ key: gameState.turn, text: who });
+    if (gameState.activePlayer === playerSide) soundManager.turnEnd();
+    const t = window.setTimeout(() => setTurnBanner(null), 1400);
+    return () => window.clearTimeout(t);
+  }, [gameState?.turn, gameState?.activePlayer, gameState?.phase, playerSide, opponentSide, gameState]);
+
+  // Victory / defeat sound
+  useEffect(() => {
+    if (!gameState || gameState.phase !== "finished") return;
+    if (gameState.winner === playerSide) soundManager.victory();
+    else soundManager.defeat();
+  }, [gameState?.phase, gameState?.winner, playerSide, gameState]);
 
   // Record result
   useEffect(() => {
@@ -416,10 +493,21 @@ export default function Battle() {
     if (!isMyTurn || !gameState) return;
     try {
       const prevOppDmg = gameState[opponentSide]?.activePokemon?.damage || 0;
-      const next = performAttack(gameState, attackIndex);
+      const prevOppActive = gameState[opponentSide]?.activePokemon;
+      soundManager.attackHit();
+      const next = autoPromoteAll(performAttack(gameState, attackIndex));
       const newOppDmg = next[opponentSide]?.activePokemon?.damage || 0;
       const dealt = newOppDmg - prevOppDmg;
-      if (dealt > 0) { setLastDamageAI(dealt); window.setTimeout(() => setLastDamageAI(null), 1200); }
+      if (dealt > 0) {
+        setLastDamageAI(dealt);
+        window.setTimeout(() => setLastDamageAI(null), 1200);
+      }
+      if (prevOppActive && (!next[opponentSide]?.activePokemon || next[opponentSide]?.activePokemon?.instanceId !== prevOppActive.instanceId)) {
+        setKoFlash(opponentSide);
+        soundManager.pokemonKO();
+        window.setTimeout(() => setKoFlash(null), 900);
+      }
+      lastLocalTurnRef.current = next.turn || 0;
       setGameState(next);
       if (roomId) await syncGameState(roomId, next).catch(() => {});
     } catch (err) { console.error("Attack error:", err); }
@@ -481,7 +569,37 @@ export default function Battle() {
   );
 
   return (
-    <div className="min-h-screen bg-background pb-10">
+    <div className="min-h-screen bg-background pb-10 relative">
+      {/* Turn banner */}
+      <AnimatePresence>
+        {turnBanner && (
+          <motion.div
+            key={turnBanner.key}
+            initial={{ opacity: 0, y: -30, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 30, scale: 0.95 }}
+            transition={{ duration: 0.35, ease: "easeOut" }}
+            className="pointer-events-none fixed left-1/2 -translate-x-1/2 top-16 z-40 rounded-full border border-primary/40 bg-background/90 backdrop-blur px-6 py-2 shadow-lg"
+          >
+            <p className="font-display text-sm font-bold tracking-widest uppercase text-primary">{turnBanner.text}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* KO full-screen flash */}
+      <AnimatePresence>
+        {koFlash && (
+          <motion.div
+            key={`ko-${koFlash}`}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: [0, 0.55, 0] }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.9, times: [0, 0.3, 1] }}
+            className={`pointer-events-none fixed inset-0 z-30 ${koFlash === playerSide ? "bg-red-600/40" : "bg-amber-400/40"}`}
+          />
+        )}
+      </AnimatePresence>
+
       <div className="max-w-2xl mx-auto px-4 pt-6 space-y-4">
 
         {/* Header */}
@@ -571,7 +689,18 @@ export default function Battle() {
                   : <p className="text-sm font-body text-muted-foreground">No attacks available.</p>
                 }
                 {attacks.length > 0 && attacks.every(a => !canAffordAttack(playerActive, a)) && (
-                  <Button variant="outline" size="sm" onClick={() => setGameState(endTurn(gameState))} className="w-full font-body">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      const next = endTurn(gameState);
+                      lastLocalTurnRef.current = next.turn || 0;
+                      soundManager.turnEnd();
+                      setGameState(next);
+                      if (roomId) await syncGameState(roomId, next).catch(() => {});
+                    }}
+                    className="w-full font-body"
+                  >
                     Pass Turn (need more energy)
                   </Button>
                 )}
