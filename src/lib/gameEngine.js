@@ -600,13 +600,17 @@ export function performAttack(gs, attackIndex) {
   }
 
   // Apply attack text effects (skeleton — expand per card). When the defender
-  // is protected we still run the resolver so self-targeting side effects
-  // (discard energy, heal self, draw) happen, but we force final damage back
-  // to 0 afterward.
+  // is protected (Agility-style) the resolver still runs for self-targeting
+  // side effects on the attacker (`ps`): heal self, discard own energy, draw.
+  // But ANY effect on the defender / opp (status, locks, energy discard from
+  // defender, bench damage) must be dropped — per the protection intent. We
+  // deep-clone `opp` pre-resolver so we can restore it after the resolver
+  // has mutated it, instead of trying to selectively undo specific fields.
+  const preResolverOpp = defenderProtected ? structuredClone(opp) : null;
   const effects = resolveAttackText(attack, attacker, defender, finalDmg, ps, opp, newLog, gs);
   finalDmg = defenderProtected ? 0 : effects.damage;
   ps = effects.ps;
-  opp = effects.opp;
+  opp = defenderProtected ? preResolverOpp : effects.opp;
   newLog.push(...effects.extraLog);
 
   // Consume the one-shot damage bonus regardless of outcome.
@@ -624,13 +628,18 @@ export function performAttack(gs, attackIndex) {
     }
   }
 
-  // Apply damage. Use the defender reference mutated by `resolveAttackText`
-  // (via `opp = effects.opp`) so status conditions, `cantAttackUntilTurn`,
-  // energy discards, etc. set during resolution are preserved. Fall back to
-  // the captured `defender` only if the resolver cleared it.
+  // Apply damage. When the defender is not protected, use the reference
+  // mutated by `resolveAttackText` (via `opp = effects.opp`) so status
+  // conditions, `cantAttackUntilTurn`, energy discards, etc. set during
+  // resolution are preserved. When the defender IS protected (Agility-style
+  // `preventEffectsUntilTurn`), fall back to the pre-resolver `defender`
+  // snapshot so status riders are also blocked — per the intent at the
+  // `defenderProtected` branch above ("drops damage and blocks status
+  // riders"). Self-targeting side effects on the attacker / opp bench / hand
+  // already flowed through `ps` and `opp` before this step, so they survive.
   const currentDefender = opp.activePokemon || defender;
   let newDefender = defenderProtected
-    ? { ...currentDefender }
+    ? { ...defender }
     : { ...currentDefender, damage: currentDefender.damage + finalDmg, damageReduction: 0 };
   opp.activePokemon = newDefender;
 

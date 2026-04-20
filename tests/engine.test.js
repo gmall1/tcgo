@@ -333,3 +333,126 @@ describe("performAttack — heal-self fires exactly once (BUG #3)", () => {
     expect(next.player1.activePokemon.damage).toBe(20);
   });
 });
+
+// ──────────────────────────────────────────────────────────────
+// Agility-style protection: `preventEffectsUntilTurn >= gs.turn` on the
+// defender must drop BOTH damage AND status riders. The fix for BUG #1
+// initially switched the protected branch to read from the post-resolver
+// `opp.activePokemon`, which let Confusion / locks / energy discards leak
+// through protection. Regression test ensures the protected branch always
+// falls back to the pre-resolver `defender` snapshot.
+// ──────────────────────────────────────────────────────────────
+describe("performAttack — Agility-style protection blocks status riders (BUG #4)", () => {
+  it("does not apply Confusion when defender has preventEffectsUntilTurn >= turn", () => {
+    mockCoinHeads();
+    const attackerDef = makeCardDef({
+      id: "protectedAttacker",
+      name: "Psy Attacker",
+      types: ["Psychic"],
+      attacks: [
+        {
+          name: "Psybeam",
+          damageValue: 40,
+          cost: ["Colorless"],
+          text: "Flip a coin. If heads, the Defending Pokémon is now Confused.",
+        },
+      ],
+    });
+    const defenderDef = makeCardDef({ id: "agile", name: "Agile Mon", hp: 100 });
+    const defender = makePlayCard(defenderDef, {
+      // Agility used last turn — effects prevented on this turn (gs.turn=1).
+      preventEffectsUntilTurn: 1,
+    });
+    const gs = makeGame({
+      p1: makePlayerState({
+        id: "player1",
+        name: "P1",
+        activePokemon: makePlayCard(attackerDef, {
+          energyAttached: [makeEnergy("Colorless")],
+        }),
+      }),
+      p2: makePlayerState({ id: "player2", name: "P2", activePokemon: defender }),
+    });
+
+    const next = performAttack(gs, 0);
+
+    // Damage blocked.
+    expect(next.player2.activePokemon.damage).toBe(0);
+    // Status rider ALSO blocked — this is the Agility invariant.
+    expect(next.player2.activePokemon.specialCondition).toBe(null);
+  });
+
+  it("does not apply cantAttackUntilTurn lock when defender is protected", () => {
+    const attackerDef = makeCardDef({
+      id: "lockAtkProt",
+      name: "Lock Caster",
+      types: ["Psychic"],
+      attacks: [
+        {
+          name: "Mind Lock",
+          damageValue: 30,
+          cost: ["Colorless"],
+          text: "The Defending Pokémon can't attack during your opponent's next turn.",
+        },
+      ],
+    });
+    const defenderDef = makeCardDef({ id: "agile2", name: "Agile Mon 2", hp: 120 });
+    const defender = makePlayCard(defenderDef, {
+      preventEffectsUntilTurn: 1,
+    });
+    const gs = makeGame({
+      p1: makePlayerState({
+        id: "player1",
+        name: "P1",
+        activePokemon: makePlayCard(attackerDef, {
+          energyAttached: [makeEnergy("Colorless")],
+        }),
+      }),
+      p2: makePlayerState({ id: "player2", name: "P2", activePokemon: defender }),
+    });
+
+    const next = performAttack(gs, 0);
+
+    expect(next.player2.activePokemon.damage).toBe(0);
+    // Lock flag must NOT leak through protection.
+    expect(next.player2.activePokemon.cantAttackUntilTurn || 0).toBe(0);
+  });
+
+  it("does not discard defender energy when defender is protected", () => {
+    const attackerDef = makeCardDef({
+      id: "drainProt",
+      name: "Energy Thief",
+      types: ["Darkness"],
+      attacks: [
+        {
+          name: "Energy Drain",
+          damageValue: 20,
+          cost: ["Colorless"],
+          text: "Discard 1 Energy from the Defending Pokémon.",
+        },
+      ],
+    });
+    const defenderDef = makeCardDef({ id: "agile3", name: "Agile Mon 3", hp: 120 });
+    const defender = makePlayCard(defenderDef, {
+      preventEffectsUntilTurn: 1,
+      energyAttached: [makeEnergy("Water"), makeEnergy("Water")],
+    });
+    const gs = makeGame({
+      p1: makePlayerState({
+        id: "player1",
+        name: "P1",
+        activePokemon: makePlayCard(attackerDef, {
+          energyAttached: [makeEnergy("Colorless")],
+        }),
+      }),
+      p2: makePlayerState({ id: "player2", name: "P2", activePokemon: defender }),
+    });
+
+    const next = performAttack(gs, 0);
+
+    expect(next.player2.activePokemon.damage).toBe(0);
+    // Energy must NOT be discarded through protection.
+    expect(next.player2.activePokemon.energyAttached.length).toBe(2);
+    expect(next.player2.discard.length).toBe(0);
+  });
+});
