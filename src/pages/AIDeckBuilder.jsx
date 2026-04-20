@@ -43,15 +43,21 @@ const PERSONALITIES = [
 // Unknown set code → best-effort name lookup via the API.
 function parseLimitlessDecklist(raw) {
   const lines = [];
-  const re = /^\s*(\d+)\s+(.+?)(?:\s+([A-Z0-9]{2,5}))?\s+(\d+)\s*$/;
+  // Accept integer counts ("4 Charizard ex OBF 125") AND decimal counts
+  // from the Limitless "stats" view ("2.90 Dragapult ex TWM 130"). Decimals
+  // are rounded to the nearest whole copy; rows rounding to 0 are dropped.
+  // The section headers "Pokémon (22.83)", "Trainer (30.14)", "Energy (7.01)"
+  // are skipped, as are any `Total:` lines.
+  const re = /^\s*(\d+(?:\.\d+)?)\s+(.+?)(?:\s+([A-Z0-9]{2,5}))?\s+(\d+[a-z]?)\s*$/;
   for (const line of raw.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    if (/^(pok[eé]mon|trainer|energy)\s*[:\-]/i.test(trimmed)) continue;
+    if (/^(pok[eé]mon|trainer|energy)\b/i.test(trimmed) && !/^\d/.test(trimmed)) continue;
     if (/^total\s*[:\-]/i.test(trimmed)) continue;
     const m = trimmed.match(re);
     if (!m) continue;
-    const qty = Number(m[1]);
+    const rawQty = Number(m[1]);
+    const qty = Math.round(rawQty);
     if (!qty || qty > 60) continue;
     lines.push({ qty, name: m[2].trim(), setCode: m[3] || null, number: m[4] });
   }
@@ -62,20 +68,47 @@ function parseLimitlessDecklist(raw) {
 // Map Limitless/PTCGO set codes → pokemontcg.io set ids. Keeps common sets;
 // unknown codes fall through to name search.
 const SET_CODE_MAP = {
-  OBF: "sv3",
-  PAL: "sv2",
+  // Scarlet & Violet era
   SVI: "sv1",
+  PAL: "sv2",
+  OBF: "sv3",
   MEW: "sv3pt5",
   PAR: "sv4",
+  PAF: "sv4pt5",
+  TEF: "sv5",
+  TWM: "sv6",
+  SFA: "sv6pt5",
+  SCR: "sv7",
+  SSP: "sv8",
+  PRE: "sv8pt5",
+  JTG: "sv9",
+  ASC: "sv9pt5",
+  DRI: "sv10",
+  BLK: "zsv10pt5",
+  WHT: "rsv10pt5",
+  MEG: "me1",
+  MEE: "me1",
+  POR: "svp",
   SVP: "svp",
   SVE: "sve",
-  PGO: "pgo",
+  // Sword & Shield
+  SSH: "swsh1",
+  RCL: "swsh2",
+  DAA: "swsh3",
+  VIV: "swsh4",
+  SHF: "swsh45",
   BST: "swsh9",
   EVS: "swsh7",
   FST: "swsh8",
-  VIV: "swsh4",
-  SSH: "swsh1",
-  BCR: "bw7",
+  CRE: "swsh6",
+  CPA: "swsh45sv",
+  BRS: "swsh9",
+  ASR: "swsh10",
+  LOR: "swsh11",
+  SIT: "swsh12",
+  CRZ: "swsh12pt5",
+  PGO: "pgo",
+  // Base / classic shortcuts
   BS: "base1",
   BASE: "base1",
 };

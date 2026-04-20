@@ -33,10 +33,12 @@ export default function CardFlowBackground({
     return out.filter(Boolean);
   }, [density, variant]);
 
+  // Default tint is a deep crimson → black fade. `crimson` kept as an alias
+  // for older callers so existing props don't break.
   const tintGradient =
-    tint === "crimson"
-      ? "from-red-950/90 via-rose-900/70 to-fuchsia-950/90"
-      : "from-fuchsia-950/90 via-rose-900/70 to-purple-950/90";
+    tint === "ember"
+      ? "from-red-800/80 via-red-950/85 to-black/90"
+      : "from-red-950/90 via-black/80 to-red-900/70";
 
   return (
     <div
@@ -80,10 +82,10 @@ export default function CardFlowBackground({
       >
         <defs>
           <linearGradient id="satin" x1="0" x2="1" y1="0" y2="1">
-            <stop offset="0%" stopColor="#ffffff" stopOpacity="0" />
-            <stop offset="45%" stopColor="#fbcfe8" stopOpacity="0.6" />
-            <stop offset="55%" stopColor="#f9a8d4" stopOpacity="0.4" />
-            <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+            <stop offset="0%" stopColor="#000000" stopOpacity="0" />
+            <stop offset="45%" stopColor="#7f1d1d" stopOpacity="0.55" />
+            <stop offset="55%" stopColor="#450a0a" stopOpacity="0.4" />
+            <stop offset="100%" stopColor="#000000" stopOpacity="0" />
           </linearGradient>
         </defs>
         <path

@@ -189,9 +189,9 @@ function PokemonCard({ playCard, isActivePlayer, isOpponent, lastDamage, onInspe
       <motion.div
         animate={lastDamage ? { x: [-5, 5, -3, 3, 0] } : canAct ? { boxShadow: ["0 0 0px rgba(250,204,21,0)", "0 0 16px rgba(250,204,21,0.55)", "0 0 0px rgba(250,204,21,0)"] } : {}}
         transition={lastDamage ? { duration: 0.3 } : { duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
-        className={`rounded-2xl border overflow-hidden ${canAct ? "border-yellow-400/80 shadow-md shadow-yellow-500/30" : isActivePlayer ? "border-primary shadow-md shadow-primary/20" : "border-border/60"} bg-black/30 backdrop-blur-sm`}
+        className={`rounded-2xl border overflow-hidden ${canAct ? "border-yellow-400/80 shadow-md shadow-yellow-500/30" : isActivePlayer ? "border-primary shadow-md shadow-primary/20" : "border-border/60"}`}
       >
-        <div className="relative aspect-[2.5/3.5] w-full flex items-center justify-center overflow-hidden">
+        <div className="relative aspect-[2.5/3.5] w-full flex items-center justify-center overflow-hidden bg-black">
           {imageUrl
             ? <img src={imageUrl} alt={def?.name} className="w-full h-full object-cover" loading="lazy" />
             : <TypeIcon type={def?.energy_type || (def?.types?.[0] || "colorless").toLowerCase()} size={52} />
@@ -209,12 +209,12 @@ function PokemonCard({ playCard, isActivePlayer, isOpponent, lastDamage, onInspe
             </div>
           )}
         </div>
-        <div className="px-3 py-2 space-y-1.5 bg-black/50 backdrop-blur-md">
+        <div className="px-3 py-2 space-y-1.5 bg-black/70 backdrop-blur-md">
           <div className="flex items-center justify-between gap-2">
             <p className="font-display font-bold text-sm leading-tight truncate text-white">{def?.name || "Unknown"}</p>
             <span className="font-body text-xs text-white/70 whitespace-nowrap">{remaining}/{hp} HP</span>
           </div>
-          <div className="h-2 rounded-full bg-secondary overflow-hidden">
+          <div className="h-2 rounded-full bg-red-950/70 overflow-hidden">
             <motion.div
               className={`h-full rounded-full bg-gradient-to-r ${hpColor(pct)}`}
               animate={{ width: `${pct * 100}%` }}
@@ -247,9 +247,9 @@ function CardBack({ size = "sm", label = null, count = null }) {
         ? "w-14 h-20"
         : "w-20 h-28";
   return (
-    <div className={`relative ${dim} rounded-md border border-blue-900/70 bg-gradient-to-br from-blue-900 via-indigo-800 to-blue-950 shadow-inner overflow-hidden flex items-center justify-center`}>
+    <div className={`relative ${dim} rounded-md border border-red-950/70 bg-gradient-to-br from-red-900 via-red-950 to-black shadow-inner overflow-hidden flex items-center justify-center`}>
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08)_0%,transparent_60%)]" />
-      <div className="font-display text-[9px] font-black text-yellow-300/90 tracking-widest uppercase rotate-[-20deg]">TCG</div>
+      <div className="font-display text-[9px] font-black text-red-300/90 tracking-widest uppercase rotate-[-20deg]">TCG</div>
       {count != null && (
         <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground rounded-full text-[10px] font-body font-bold w-5 h-5 flex items-center justify-center shadow">{count}</span>
       )}
@@ -272,7 +272,7 @@ function DiscardStack({ discard, onClick, label = "Discard" }) {
       type="button"
       onClick={count > 0 ? onClick : undefined}
       disabled={count === 0}
-      className={`relative w-14 h-20 rounded-md border ${count > 0 ? "border-rose-400/60 hover:ring-2 hover:ring-rose-400/40 cursor-pointer" : "border-border/60 cursor-default"} bg-card overflow-hidden flex items-center justify-center`}
+      className={`relative w-14 h-20 rounded-md border ${count > 0 ? "border-red-700/70 hover:ring-2 hover:ring-red-500/40 cursor-pointer" : "border-red-950/50 cursor-default"} bg-black/60 overflow-hidden flex items-center justify-center`}
       title={count > 0 ? `${label} (${count})` : `${label} (empty)`}
     >
       {top
@@ -358,7 +358,7 @@ function PlayerField({
                   data-dropzone={dropZoneIds?.active || null}
                   data-instanceid={active.instanceId}
                   onClick={onActiveClick ? () => onActiveClick(active) : undefined}
-                  className={`w-full max-w-[220px] ${selectable ? "ring-2 ring-primary/60 ring-offset-2 ring-offset-background rounded-2xl cursor-pointer" : ""}`}
+                  className={`w-full max-w-[150px] md:max-w-[170px] ${selectable ? "ring-2 ring-primary/60 ring-offset-2 ring-offset-background rounded-2xl cursor-pointer" : ""}`}
                 >
                   <PokemonCard
                     playCard={active}
@@ -373,7 +373,7 @@ function PlayerField({
             : <div
                 data-dropzone={dropZoneIds?.active || null}
                 onClick={onActiveClick ? () => onActiveClick(null) : undefined}
-                className={`w-full max-w-[220px] rounded-2xl border border-dashed h-32 flex items-center justify-center ${selectable ? "border-primary/60 bg-primary/5 cursor-pointer" : "border-border bg-card/50"}`}
+                className={`w-full max-w-[150px] md:max-w-[170px] rounded-2xl border border-dashed h-32 flex items-center justify-center ${selectable ? "border-primary/60 bg-primary/10 cursor-pointer" : "border-red-950/40 bg-black/30"}`}
               >
                 <p className="text-xs font-body text-muted-foreground">{selectable ? "Place here" : "No Active"}</p>
               </div>
@@ -392,7 +392,7 @@ function PlayerField({
                     data-dropzone={dropZoneIds?.bench || null}
                     onClick={onBenchClick ? () => onBenchClick(null) : undefined}
                     disabled={!selectable}
-                    className={`rounded-md border border-dashed h-14 flex items-center justify-center ${selectable ? "border-primary/50 bg-primary/5 cursor-pointer hover:bg-primary/10" : "border-border/40 bg-card/30"}`}
+                    className={`rounded-md border border-dashed aspect-[2.5/3.5] flex items-center justify-center ${selectable ? "border-primary/50 bg-primary/10 cursor-pointer hover:bg-primary/20" : "border-red-950/40 bg-black/20"}`}
                   >
                     <span className="text-[9px] font-body text-muted-foreground">{idx + 1}</span>
                   </button>
@@ -410,23 +410,23 @@ function PlayerField({
                   data-instanceid={b.instanceId}
                   onClick={onBenchClick ? () => onBenchClick(b) : undefined}
                   onContextMenu={onInspect ? (e) => { e.preventDefault(); onInspect(b); } : undefined}
-                  className={`rounded-md border overflow-hidden ${selectable ? "border-primary/60 cursor-pointer" : "border-border/50"} bg-black/30 backdrop-blur-sm`}
+                  className={`relative rounded-md border overflow-hidden ${selectable ? "border-primary/60 cursor-pointer" : "border-red-950/60"}`}
                 >
-                  <div className="relative aspect-[2.5/3.5] w-full flex items-center justify-center overflow-hidden">
+                  <div className="relative aspect-[2.5/3.5] w-full flex items-center justify-center overflow-hidden bg-black">
                     {bImg
                       ? <img src={bImg} alt={b.def?.name} className="w-full h-full object-cover" loading="lazy" />
                       : <TypeIcon type={b.def?.energy_type || (b.def?.types?.[0] || "colorless").toLowerCase()} size={18} />}
                   </div>
-                  <div className="h-1 bg-secondary">
+                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-red-950/70">
                     <div className={`h-full bg-gradient-to-r ${hpColor(bPct)}`} style={{ width: `${bPct*100}%` }} />
                   </div>
                   {b.specialCondition && (
                     <div className="flex justify-center py-0.5"><StatusBadge condition={b.specialCondition} /></div>
                   )}
                   {(b.energyAttached?.length > 0) && (
-                    <div className="flex justify-center gap-0.5 py-0.5 bg-black/30">
+                    <div className="absolute top-0.5 left-0.5 right-0.5 flex justify-start gap-0.5">
                       {b.energyAttached.slice(0, 4).map((_, i) => (
-                        <span key={i} className="w-1.5 h-1.5 rounded-full bg-yellow-400/80" />
+                        <span key={i} className="w-1.5 h-1.5 rounded-full bg-yellow-400/90 border border-black/40" />
                       ))}
                     </div>
                   )}
@@ -573,19 +573,26 @@ function HandPanel({ hand, selectedId, onCardClick, onCardDrop, onCardInspect, d
 }
 
 function BattleLog({ entries }) {
-  const bottomRef = useRef(null);
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [entries]);
+  const scrollRef = useRef(null);
+  // Auto-scroll the log container only (not the page). `scrollIntoView`
+  // bubbled up to the root window which caused the whole playmat to bounce
+  // every time a new log line landed.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [entries]);
 
   const style = (e) => {
     if (e.includes("Knocked Out")) return "text-red-400 font-semibold";
     if (e.includes("wins") || e.includes("Prize")) return "text-emerald-400 font-semibold";
     if (e.includes("---")) return "text-primary/60 italic";
-    if (/Paralyzed|Asleep|Poisoned|Confused|Burned|Burn|Sleep|Confusion/.test(e)) return "text-purple-400";
+    if (/Paralyzed|Asleep|Poisoned|Confused|Burned|Burn|Sleep|Confusion/.test(e)) return "text-amber-300";
     return "text-muted-foreground";
   };
 
   return (
-    <div className="h-44 overflow-y-auto space-y-1 pr-1">
+    <div ref={scrollRef} className="h-44 overflow-y-auto space-y-1 pr-1">
       {entries.map((e, i) => (
         <motion.div key={`${i}-${e}`} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.15 }}
@@ -593,7 +600,6 @@ function BattleLog({ entries }) {
           {e}
         </motion.div>
       ))}
-      <div ref={bottomRef} />
     </div>
   );
 }
@@ -1100,8 +1106,8 @@ export default function Battle() {
 
   return (
     <div className="min-h-screen bg-background pb-10 relative overflow-hidden">
-      {/* Animated pink-satin playmat background */}
-      <CardFlowBackground variant="satin" tint="magenta" intensity={0.55} />
+      {/* Animated crimson / black satin playmat background */}
+      <CardFlowBackground variant="satin" tint="crimson" intensity={0.5} />
       <div className="relative z-10">
       {/* Turn banner */}
       <AnimatePresence>

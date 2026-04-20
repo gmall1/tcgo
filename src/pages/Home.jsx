@@ -10,11 +10,11 @@ export default function Home() {
     <div className="min-h-screen bg-background pb-24 overflow-hidden">
       {/* Hero */}
       <div className="relative overflow-hidden min-h-[46vh] flex items-end">
-        <CardFlowBackground density={24} tint="magenta" />
+        <CardFlowBackground density={24} tint="crimson" />
         <div className="absolute top-4 right-4 font-black text-[96px] leading-none text-white/5 select-none tracking-tighter">TCG</div>
         <div className="relative px-5 pb-8 pt-16">
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }}>
-            <p className="text-pink-200/80 font-display text-[11px] font-bold tracking-[0.2em] uppercase mb-1">Pokémon</p>
+            <p className="text-red-200/80 font-display text-[11px] font-bold tracking-[0.2em] uppercase mb-1">Pokémon</p>
             <h1 className="font-display text-5xl font-black text-white leading-none tracking-tight drop-shadow-[0_2px_12px_rgba(0,0,0,0.55)]">
               TCG<br />LIVE
             </h1>
@@ -45,8 +45,8 @@ export default function Home() {
         {/* Mode cards */}
         <div className="grid grid-cols-2 gap-3">
           {[
-            { to: "/battle?mode=unlimited&ai=true", gradient: "from-violet-800 to-indigo-950", label: "UNLIMITED", sub: "All cards legal", Icon: Zap, delay: 0.18 },
-            { to: "/battle?mode=standard&ai=true",  gradient: "from-blue-800 to-blue-950",    label: "STANDARD",  sub: "Legal sets only", Icon: Shield, delay: 0.22 },
+            { to: "/battle?mode=unlimited&ai=true", gradient: "from-red-900 to-black",         label: "UNLIMITED", sub: "All cards legal", Icon: Zap, delay: 0.18 },
+            { to: "/battle?mode=standard&ai=true",  gradient: "from-zinc-800 to-black",        label: "STANDARD",  sub: "Legal sets only", Icon: Shield, delay: 0.22 },
           ].map(({ to, gradient, label, sub, Icon, delay }) => (
             <motion.div key={label} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay }}>
               <Link to={to}>

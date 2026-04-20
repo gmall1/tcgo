@@ -6,16 +6,23 @@ import { getPokemonCards, getEnergyCards, buildStarterDeck, AI_DEFAULT_DECK_IDS 
 import { getCardById } from "./cardCatalog";
 
 export function buildAIDeck(personality = "balanced") {
-  // Primary path: curated AI deck of real pokemontcg.io ids (every card
-  // resolves in the registry + has real art). Fallback to the generic
-  // starter deck if an older catalog build ever strips those ids.
-  const hydrated = AI_DEFAULT_DECK_IDS.filter((id) => Boolean(getCardById(id)));
-  if (hydrated.length >= 20) return AI_DEFAULT_DECK_IDS.slice();
+  // Delegate to the per-personality builder so we always emit a 60-card
+  // deck whose ids are guaranteed to hydrate via the registry. The curated
+  // AI_DEFAULT_DECK_IDS is only used as an absolute-last-resort fallback
+  // below when every other path fails (e.g. the catalog is empty).
+  const byPersonality = {
+    aggressive: buildAggressiveDeck,
+    stall: buildStallDeck,
+    balanced: buildBalancedDeck,
+  };
+  const build = byPersonality[personality] || buildBalancedDeck;
+  const deck = build();
+  if (deck.length >= 40) return deck;
 
-  const deck = buildStarterDeck();
-  if (deck.length >= 20) return deck;
+  const starter = buildStarterDeck();
+  if (starter.length >= 40) return starter;
 
-  return buildBalancedDeck();
+  return HARDCODED_AI_DECK.slice();
 }
 
 export function buildBalancedDeck() {
@@ -24,7 +31,7 @@ export function buildBalancedDeck() {
 
   if (pokemon.length === 0) {
     // Absolute fallback: hardcoded minimal deck for offline play
-    return HARDCODED_AI_DECK;
+    return HARDCODED_AI_DECK.slice();
   }
 
   const deck = [];
@@ -46,12 +53,26 @@ export function buildBalancedDeck() {
 }
 
 export function buildAggressiveDeck() {
-  const pokemon = getPokemonCards()
-    .filter(c => (c.attack1_damage || 0) > 60 || (c.attack2_damage || 0) > 100)
+  // Prefer high-damage attackers. Use a generous threshold so the curated
+  // STARTER_POOL (Zapdos topping out at 60/100) still qualifies; if nothing
+  // clears the bar we sort by best attack instead of returning an empty
+  // slate that forces the fallback.
+  const pool = getPokemonCards();
+  let pokemon = pool
+    .filter(c => (c.attack1_damage || 0) >= 50 || (c.attack2_damage || 0) >= 80)
     .slice(0, 10);
+  if (pokemon.length === 0) {
+    pokemon = [...pool]
+      .sort((a, b) => {
+        const ad = Math.max(a.attack1_damage || 0, a.attack2_damage || 0);
+        const bd = Math.max(b.attack1_damage || 0, b.attack2_damage || 0);
+        return bd - ad;
+      })
+      .slice(0, 10);
+  }
   const energy = getEnergyCards().slice(0, 4);
 
-  if (pokemon.length === 0) return HARDCODED_AI_DECK;
+  if (pokemon.length === 0) return HARDCODED_AI_DECK.slice();
 
   const deck = [];
   for (let i = 0; i < Math.min(4, pokemon.length); i++) {
@@ -74,7 +95,7 @@ export function buildStallDeck() {
     .slice(0, 8);
   const energy = getEnergyCards().slice(0, 3);
 
-  if (pokemon.length === 0) return HARDCODED_AI_DECK;
+  if (pokemon.length === 0) return HARDCODED_AI_DECK.slice();
 
   const deck = [];
   for (let i = 0; i < Math.min(3, pokemon.length); i++) {
@@ -92,8 +113,9 @@ export function buildStallDeck() {
 }
 
 // Offline fallback: use the curated-pool ids exported from cardCatalog so
-// we never produce a deck full of ids that don't resolve.
-const HARDCODED_AI_DECK = AI_DEFAULT_DECK_IDS;
+// we never produce a deck full of ids that don't resolve. Defensive copy so
+// the shared `AI_DEFAULT_DECK_IDS` constant can't be mutated by callers.
+const HARDCODED_AI_DECK = AI_DEFAULT_DECK_IDS.slice();
 
 // Transform card IDs to guaranteed-to-work card objects for engine
 export function hydrateAIDeck(cardIds) {
