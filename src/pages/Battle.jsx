@@ -20,6 +20,11 @@ import {
   performAttack,
   canAffordAttack,
   setActivePokemon,
+  attachEnergy,
+  playBasicToBench,
+  evolvePokemon,
+  retreat,
+  playTrainer,
 } from "@/lib/gameEngine";
 import { performAITurn, getAICommentary } from "@/lib/aiOpponent";
 import {
@@ -53,28 +58,81 @@ function conditionIcon(cond) {
   return map[cond] || null;
 }
 
+// Normalize a raw catalog card into something the engine can play with.
+// Treats stand-alone Pokémon (ex / v / vmax / vstar / radiant) as Basics so
+// they can be placed as Active / Bench without needing an evolution chain.
+const BASIC_LIKE_STAGES = new Set(["basic", "ex", "v", "vmax", "vstar", "radiant", ""]);
+
+function normalizeEngineCard(c) {
+  const supertype = c.supertype
+    || (c.card_type === "pokemon" ? "Pokémon" : c.card_type === "energy" ? "Energy" : "Trainer");
+  const rawStage = String(c.stage || "").toLowerCase();
+  const stage =
+    c.card_type === "pokemon"
+      ? (BASIC_LIKE_STAGES.has(rawStage) ? "basic" : rawStage || "basic")
+      : null;
+  const retreat = c.retreat_cost ?? c.convertedRetreatCost ?? 1;
+  const attacks = c.attacks?.length
+    ? c.attacks.map(a => ({ ...a, damageValue: Number(a.damageValue ?? a.damage ?? 0) }))
+    : [
+        ...(c.attack1_name
+          ? [{
+              name: c.attack1_name,
+              damageValue: Number(c.attack1_damage || 20),
+              cost: Array(Math.max(1, Number(c.attack1_cost || 1))).fill("Colorless"),
+              text: c.attack1_text || "",
+            }]
+          : (c.card_type === "pokemon"
+              ? [{ name: "Tackle", damageValue: 20, cost: ["Colorless"], text: "" }]
+              : [])),
+        ...(c.attack2_name
+          ? [{
+              name: c.attack2_name,
+              damageValue: Number(c.attack2_damage || 40),
+              cost: Array(Math.max(1, Number(c.attack2_cost || 2))).fill("Colorless"),
+              text: c.attack2_text || "",
+            }]
+          : []),
+      ];
+  const rules = c.rules?.length
+    ? c.rules
+    : c.description
+      ? [c.description]
+      : [];
+  return {
+    ...c,
+    supertype,
+    stage,
+    hp: c.hp ? Number(c.hp) : (c.card_type === "pokemon" ? 70 : null),
+    attacks,
+    weaknesses: c.weaknesses || (c.weakness && c.weakness !== "none" ? [{ type: c.weakness, value: "x2" }] : []),
+    resistances: c.resistances || [],
+    convertedRetreatCost: Number(retreat) || 0,
+    rules,
+    isSupporter: c.isSupporter || /supporter/i.test(rules.join(" ")) || false,
+    isStadium: c.isStadium || /stadium/i.test(rules.join(" ")) || false,
+    evolvesFrom: c.evolvesFrom || null,
+  };
+}
+
 async function buildPlayerDef(name, cardIds) {
   const ids = cardIds?.length ? cardIds : buildStarterDeck();
   await hydrateCardsByIds(ids).catch(() => {});
   let cards = ids.map(id => getCardById(id)).filter(Boolean);
+
+  // If nothing resolved (e.g. stale room deck ids from an older session),
+  // fall back to the fresh starter deck so the game isn't unplayable.
+  if (!cards.length) {
+    const fallbackIds = buildStarterDeck();
+    cards = fallbackIds.map(id => getCardById(id)).filter(Boolean);
+  }
   if (!cards.length) {
     const fallbacks = getPokemonCards().slice(0, 10);
     cards = [...fallbacks, ...fallbacks.slice(0, 4)];
   }
-  const deck = cards.map(c => ({
-    ...c,
-    supertype: c.supertype || (c.card_type === "pokemon" ? "Pokémon" : c.card_type === "energy" ? "Energy" : "Trainer"),
-    stage: c.stage || (c.card_type === "pokemon" ? "basic" : null),
-    hp: c.hp ? Number(c.hp) : 100,
-    attacks: c.attacks?.length
-      ? c.attacks
-      : [{ name: c.attack1_name || "Tackle", damageValue: Number(c.attack1_damage || 20), cost: ["Colorless"], text: "" },
-         ...(c.attack2_name ? [{ name: c.attack2_name, damageValue: Number(c.attack2_damage || 40), cost: ["Colorless","Colorless"], text: "" }] : [])],
-    weaknesses: c.weaknesses || [],
-    resistances: c.resistances || [],
-    convertedRetreatCost: c.convertedRetreatCost || 1,
-  }));
-  while (deck.length < 20) {
+
+  const deck = cards.map(normalizeEngineCard);
+  while (deck.length < 40) {
     deck.push(deck[deck.length % Math.max(deck.length, 1)]);
   }
   return { name, deck };
@@ -106,7 +164,7 @@ function DamageFlash({ value }) {
   );
 }
 
-function PokemonCard({ playCard, isActivePlayer, isOpponent, lastDamage }) {
+function PokemonCard({ playCard, isActivePlayer, isOpponent, lastDamage, onInspect, canAct }) {
   const def = playCard?.def;
   const style = getTypeStyle(def?.energy_type || (def?.types?.[0] || "").toLowerCase() || "colorless");
   const hp = def?.hp ? Number(def.hp) : 100;
@@ -114,12 +172,18 @@ function PokemonCard({ playCard, isActivePlayer, isOpponent, lastDamage }) {
   const pct = remaining / hp;
   const imageUrl = def?.image_small || def?.image_large || def?.imageSmall || def?.imageLarge;
 
+  const onContext = (e) => {
+    if (!onInspect || !def) return;
+    e.preventDefault();
+    onInspect(playCard);
+  };
+
   return (
-    <div className="relative">
+    <div className="relative" onContextMenu={onContext}>
       <motion.div
-        animate={lastDamage ? { x: [-5, 5, -3, 3, 0] } : {}}
-        transition={{ duration: 0.3 }}
-        className={`rounded-2xl border overflow-hidden ${isActivePlayer ? "border-primary shadow-md shadow-primary/20" : "border-border"} bg-card`}
+        animate={lastDamage ? { x: [-5, 5, -3, 3, 0] } : canAct ? { boxShadow: ["0 0 0px rgba(250,204,21,0)", "0 0 16px rgba(250,204,21,0.55)", "0 0 0px rgba(250,204,21,0)"] } : {}}
+        transition={lastDamage ? { duration: 0.3 } : { duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+        className={`rounded-2xl border overflow-hidden ${canAct ? "border-yellow-400/80 shadow-md shadow-yellow-500/30" : isActivePlayer ? "border-primary shadow-md shadow-primary/20" : "border-border"} bg-card`}
       >
         <div className={`relative h-32 bg-gradient-to-br ${style.bg} flex items-center justify-center overflow-hidden`}>
           {imageUrl
@@ -165,7 +229,7 @@ function PokemonCard({ playCard, isActivePlayer, isOpponent, lastDamage }) {
   );
 }
 
-function PlayerField({ playerState, isOpponent, isActivePlayer, lastDamage, label }) {
+function PlayerField({ playerState, isOpponent, isActivePlayer, lastDamage, label, onActiveClick, onBenchClick, selectable, onInspect, canActActive, dropZoneIds }) {
   const active = playerState?.activePokemon;
   const bench = playerState?.bench || [];
   const prizes = playerState?.prizeCards?.length ?? 0;
@@ -190,13 +254,33 @@ function PlayerField({ playerState, isOpponent, isActivePlayer, lastDamage, labe
       </div>
 
       {active
-        ? <PokemonCard playCard={active} isActivePlayer={isActivePlayer} isOpponent={isOpponent} lastDamage={lastDamage} />
-        : <div className="rounded-2xl border border-dashed border-border bg-card/50 h-36 flex items-center justify-center">
-            <p className="text-sm font-body text-muted-foreground">No Active Pokémon</p>
+        ? (
+            <div
+              data-dropzone={dropZoneIds?.active || null}
+              data-instanceid={active.instanceId}
+              onClick={onActiveClick ? () => onActiveClick(active) : undefined}
+              className={`${selectable ? "ring-2 ring-primary/60 ring-offset-2 ring-offset-background rounded-2xl cursor-pointer" : ""}`}
+            >
+              <PokemonCard
+                playCard={active}
+                isActivePlayer={isActivePlayer}
+                isOpponent={isOpponent}
+                lastDamage={lastDamage}
+                onInspect={onInspect}
+                canAct={Boolean(canActActive)}
+              />
+            </div>
+          )
+        : <div
+            data-dropzone={dropZoneIds?.active || null}
+            onClick={onActiveClick ? () => onActiveClick(null) : undefined}
+            className={`rounded-2xl border border-dashed h-36 flex items-center justify-center ${selectable ? "border-primary/60 bg-primary/5 cursor-pointer" : "border-border bg-card/50"}`}
+          >
+            <p className="text-sm font-body text-muted-foreground">{selectable ? "Place here" : "No Active Pokémon"}</p>
           </div>
       }
 
-      {bench.length > 0 && (
+      {(bench.length > 0 || selectable) && (
         <div className="grid grid-cols-5 gap-1.5">
           {bench.map((b) => {
             const bs = getTypeStyle(b.def?.energy_type || (b.def?.types?.[0]||"").toLowerCase() || "colorless");
@@ -204,7 +288,14 @@ function PlayerField({ playerState, isOpponent, isActivePlayer, lastDamage, labe
             const bPct = Math.max(0, (bHp - (b.damage||0)) / bHp);
             const bImg = b.def?.image_small || b.def?.imageSmall;
             return (
-              <div key={b.instanceId} className="rounded-lg border border-border bg-card overflow-hidden">
+              <motion.div
+                key={b.instanceId}
+                layout
+                data-dropzone={dropZoneIds?.bench || null}
+                data-instanceid={b.instanceId}
+                onClick={onBenchClick ? () => onBenchClick(b) : undefined}
+                onContextMenu={onInspect ? (e) => { e.preventDefault(); onInspect(b); } : undefined}
+                className={`rounded-lg border overflow-hidden ${selectable ? "border-primary/60 cursor-pointer" : "border-border"} bg-card`}>
                 <div className={`h-12 bg-gradient-to-br ${bs.bg} flex items-center justify-center`}>
                   {bImg ? <img src={bImg} alt={b.def?.name} className="h-full w-auto object-contain" loading="lazy" />
                     : <TypeIcon type={b.def?.energy_type || (b.def?.types?.[0] || "colorless").toLowerCase()} size={20} />}
@@ -215,9 +306,25 @@ function PlayerField({ playerState, isOpponent, isActivePlayer, lastDamage, labe
                 {b.specialCondition && (
                   <div className="flex justify-center py-0.5"><StatusBadge condition={b.specialCondition} /></div>
                 )}
-              </div>
+                {(b.energyAttached?.length > 0) && (
+                  <div className="flex justify-center gap-0.5 py-0.5 bg-black/30">
+                    {b.energyAttached.slice(0, 4).map((_, i) => (
+                      <span key={i} className="w-2 h-2 rounded-full bg-yellow-400/80" />
+                    ))}
+                  </div>
+                )}
+              </motion.div>
             );
           })}
+          {selectable && bench.length < 5 && onBenchClick && (
+            <button
+              data-dropzone={dropZoneIds?.bench || null}
+              onClick={() => onBenchClick(null)}
+              className="rounded-lg border border-dashed border-primary/60 bg-primary/5 text-[10px] font-body text-muted-foreground h-12 hover:bg-primary/10"
+            >
+              Empty
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -254,6 +361,93 @@ function AttackButton({ attack, index, onAttack, disabled, canAfford }) {
         </div>
       </div>
     </motion.button>
+  );
+}
+
+// Classifies a card-in-hand into the gameplay action it initiates.
+function handCardKind(card) {
+  const d = card?.def;
+  if (!d) return "unknown";
+  if (d.supertype === "Energy") return "energy";
+  if (d.supertype === "Trainer") return d.isSupporter ? "supporter" : (d.isStadium ? "stadium" : "item");
+  if (d.supertype === "Pokémon") return d.stage === "basic" ? "basic" : "evolution";
+  return "unknown";
+}
+
+function HandPanel({ hand, selectedId, onCardClick, onCardDrop, onCardInspect, dimmed, playableIds }) {
+  if (!hand?.length) {
+    return (
+      <div className="text-xs font-body text-muted-foreground italic">
+        Your hand is empty.
+      </div>
+    );
+  }
+  return (
+    <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
+      <AnimatePresence initial={false}>
+        {hand.map((card, i) => {
+          const kind = handCardKind(card);
+          const d = card.def;
+          const style = getTypeStyle(d?.energy_type || (d?.types?.[0] || "").toLowerCase() || "colorless");
+          const isSel = selectedId === card.instanceId;
+          const isPlayable = playableIds ? playableIds.has(card.instanceId) : true;
+          const badge =
+            kind === "energy"     ? { label: "Energy",     color: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30" }
+            : kind === "basic"    ? { label: "Basic",      color: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" }
+            : kind === "evolution"? { label: `→ ${d.evolvesFrom || "Evo"}`, color: "bg-purple-500/20 text-purple-300 border-purple-500/30" }
+            : kind === "supporter"? { label: "Supporter",  color: "bg-rose-500/20 text-rose-300 border-rose-500/30" }
+            : kind === "stadium"  ? { label: "Stadium",    color: "bg-blue-500/20 text-blue-300 border-blue-500/30" }
+            : kind === "item"     ? { label: "Item",       color: "bg-teal-500/20 text-teal-300 border-teal-500/30" }
+            : { label: d?.supertype || "Card", color: "bg-secondary text-muted-foreground" };
+          const img = d?.image_small || d?.imageSmall;
+          const handleDragEnd = (_, info) => {
+            if (!onCardDrop) return;
+            // Only trigger a drop when the user actually dragged (vs just tapped).
+            const dragged = Math.hypot(info.offset?.x || 0, info.offset?.y || 0) > 20;
+            if (!dragged) return;
+            const x = info.point?.x ?? 0;
+            const y = info.point?.y ?? 0;
+            const el = typeof document !== "undefined" ? document.elementFromPoint(x, y) : null;
+            const zoneEl = el?.closest?.("[data-dropzone]");
+            if (!zoneEl) return;
+            const zone = zoneEl.getAttribute("data-dropzone");
+            const instanceId = zoneEl.getAttribute("data-instanceid");
+            onCardDrop(card, zone, instanceId || null);
+          };
+          return (
+            <motion.button
+              key={card.instanceId || `${i}-${d?.name}`}
+              layout
+              initial={{ y: 20, opacity: 0 }}
+              animate={{
+                y: 0,
+                opacity: (dimmed || !isPlayable) && !isSel ? 0.45 : 1,
+                scale: isSel ? 1.05 : 1,
+              }}
+              exit={{ y: -20, opacity: 0 }}
+              whileHover={{ y: -4 }}
+              drag={Boolean(onCardDrop)}
+              dragSnapToOrigin
+              dragElastic={0.6}
+              onClick={() => onCardClick?.(card)}
+              onContextMenu={(e) => { if (onCardInspect) { e.preventDefault(); onCardInspect(card); } }}
+              onDragEnd={handleDragEnd}
+              className={`relative flex-shrink-0 w-24 rounded-xl border overflow-hidden text-left ${isSel ? "border-primary shadow-lg shadow-primary/30" : isPlayable ? "border-border" : "border-border/50"} bg-card touch-none`}
+            >
+              <div className={`h-16 bg-gradient-to-br ${style.bg} flex items-center justify-center`}>
+                {img
+                  ? <img src={img} alt={d?.name} className="h-full w-auto object-contain" loading="lazy" />
+                  : <TypeIcon type={d?.energy_type || (d?.types?.[0] || "colorless").toLowerCase()} size={28} />}
+              </div>
+              <div className="p-1.5 space-y-1">
+                <p className="font-display text-[11px] font-bold leading-tight truncate">{d?.name}</p>
+                <span className={`inline-block rounded px-1 py-0.5 text-[9px] font-body border ${badge.color}`}>{badge.label}</span>
+              </div>
+            </motion.button>
+          );
+        })}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -302,9 +496,21 @@ export default function Battle() {
   const [lastDamageAI, setLastDamageAI] = useState(null);
   const [turnBanner, setTurnBanner] = useState(null);
   const [koFlash, setKoFlash] = useState(null);
+  // Hand-driven action state machine. `kind` is one of:
+  //   attach | bench | evolve | retreat | trainer_target | place_active
+  // When set, the player's field becomes selectable and the next click on a
+  // player card dispatches the action.
+  const [pendingAction, setPendingAction] = useState(null);
+  // Card pinned open in the inspector modal. Can be a playCard (from field)
+  // or hand card (both wrap a `def`).
+  const [inspectCard, setInspectCard] = useState(null);
   const recordedRef = useRef(false);
   const lastSyncedTurnRef = useRef(0);
   const lastLocalTurnRef = useRef(0);
+  // Monotonic stateVersion of the local snapshot. Used in the sync callback
+  // (which closes over a stale gameState) to decide whether the remote
+  // update is newer. Kept in a ref so subscribe closures read the latest value.
+  const lastLocalVersionRef = useRef(0);
   const seedingGameStateRef = useRef(false);
 
   const opponentSide = playerSide === "player1" ? "player2" : "player1";
@@ -313,6 +519,39 @@ export default function Battle() {
   const isMyTurn = Boolean(gameState && gameState.phase === "main" && gameState.activePlayer === playerSide);
   const playerActive = playerState?.activePokemon;
   const attacks = playerActive?.def?.attacks || [];
+  // Active Pokémon is "playable" (glow) when at least one of its attacks is
+  // affordable with the currently-attached energy.
+  const canActActive = Boolean(
+    isMyTurn &&
+    playerActive &&
+    !pendingAction &&
+    attacks.some((a) => canAffordAttack(playerActive, a))
+  );
+  // Set of hand card instanceIds the player can actually use right now.
+  // Used by HandPanel to dim unplayable cards.
+  const playableHandIds = useMemo(() => {
+    const ids = new Set();
+    if (!isMyTurn || !playerState) return ids;
+    for (const card of playerState.hand || []) {
+      const kind = handCardKind(card);
+      if (kind === "energy") {
+        if (!playerState.energyAttachedThisTurn && playerActive) ids.add(card.instanceId);
+      } else if (kind === "basic") {
+        if (!playerState.activePokemon || playerState.bench.length < 5) ids.add(card.instanceId);
+      } else if (kind === "evolution") {
+        const from = card.def.evolvesFrom?.toLowerCase?.();
+        const all = [playerState.activePokemon, ...(playerState.bench || [])].filter(Boolean);
+        if (from && all.some(p => p?.def?.name?.toLowerCase?.() === from && (p.turnPlayed ?? 0) < gameState.turn)) {
+          ids.add(card.instanceId);
+        }
+      } else if (kind === "supporter") {
+        if (!playerState.supporterPlayedThisTurn) ids.add(card.instanceId);
+      } else if (kind === "item" || kind === "stadium") {
+        ids.add(card.instanceId);
+      }
+    }
+    return ids;
+  }, [isMyTurn, playerState, playerActive, gameState?.turn]);
 
   useEffect(() => { db.auth.me().then(setUser).catch(() => {}); }, []);
 
@@ -375,20 +614,27 @@ export default function Battle() {
         unsubscribe = subscribeToRoom(roomId, (upd) => {
           if (!active) return;
           setRoomData(upd);
-          // Only adopt remote state if it's newer than our local copy OR if
-          // the remote thinks it's now OUR turn (opponent just made a move).
+          // Adopt remote state whenever it's strictly fresher than our local
+          // copy. We compare stateVersion (monotonic, incremented by every
+          // action) as the primary key. Turn/activePlayer are fallbacks for
+          // legacy snapshots that pre-date stateVersion, and the final
+          // "phase === finished" always wins so both clients agree on game end.
           if (upd?.game_state) {
+            const remoteVersion = upd.game_state.stateVersion ?? 0;
+            const localVersion = lastLocalVersionRef.current;
             const remoteTurn = upd.game_state.turn || 0;
             const remoteActive = upd.game_state.activePlayer;
             const localTurn = lastLocalTurnRef.current;
             const isFinished = upd.game_state.phase === "finished";
             if (
               isFinished ||
+              remoteVersion > localVersion ||
               remoteTurn > localTurn ||
-              (remoteTurn === localTurn && remoteActive === playerSide)
+              (remoteTurn === localTurn && remoteActive === playerSide && remoteVersion >= localVersion)
             ) {
               lastLocalTurnRef.current = remoteTurn;
               lastSyncedTurnRef.current = remoteTurn;
+              lastLocalVersionRef.current = remoteVersion;
               setGameState(upd.game_state);
             }
           } else {
@@ -488,6 +734,155 @@ export default function Battle() {
         await db.entities.GameRoom.update(roomId, { result_recorded: true, status: "finished" });
     })().catch(err => console.error("record error:", err));
   }, [gameState, mode, roomData, roomId, user]);
+
+  // Apply a reducer-style action to the local game state and push it to the
+  // network. Centralised so every action path (attach/bench/evolve/retreat/
+  // trainer/attack/endTurn) has consistent error handling and sync behavior.
+  const applyAndSync = useCallback(async (next, extraLog) => {
+    if (!next) return;
+    if (next._error) {
+      console.warn("Action error:", next._error);
+      return;
+    }
+    const cleaned = autoPromoteAll({ ...next, stateVersion: (next.stateVersion || 0) + 1 });
+    lastLocalTurnRef.current = cleaned.turn || 0;
+    lastLocalVersionRef.current = cleaned.stateVersion || 0;
+    setGameState(cleaned);
+    if (roomId) await syncGameState(roomId, cleaned).catch(() => {});
+    if (extraLog) console.debug(extraLog);
+  }, [roomId]);
+
+  const onHandCardClick = useCallback((card) => {
+    if (!isMyTurn || !playerState) return;
+    const kind = handCardKind(card);
+    if (kind === "energy") {
+      if (playerState.energyAttachedThisTurn) return;
+      setPendingAction({ kind: "attach", cardInstanceId: card.instanceId, label: `Attach ${card.def.name}` });
+    } else if (kind === "basic") {
+      if (!playerState.activePokemon) {
+        // First basic this game — becomes active directly.
+        const next = setActivePokemon(gameState, playerSide, card.instanceId);
+        applyAndSync(next);
+      } else if (playerState.bench.length < 5) {
+        const next = playBasicToBench(gameState, playerSide, card.instanceId);
+        applyAndSync(next);
+      }
+      setPendingAction(null);
+    } else if (kind === "evolution") {
+      setPendingAction({ kind: "evolve", cardInstanceId: card.instanceId, label: `Evolve into ${card.def.name}` });
+    } else if (kind === "supporter" || kind === "item" || kind === "stadium") {
+      // Trainer cards: some need a target, others don't.
+      const n = card.def.name.toLowerCase();
+      const needsTarget =
+        n.includes("potion") || n.includes("switch") || n.includes("gust") || n.includes("boss") ||
+        n.includes("scoop up") || n.includes("defender") || n.includes("full heal");
+      if (needsTarget) {
+        setPendingAction({ kind: "trainer_target", cardInstanceId: card.instanceId, label: `${card.def.name} — choose target` });
+      } else {
+        const next = playTrainer(gameState, playerSide, card.instanceId, {});
+        applyAndSync(next);
+        setPendingAction(null);
+      }
+    }
+  }, [isMyTurn, playerState, gameState, playerSide, applyAndSync]);
+
+  const onPlayerActiveClick = useCallback((card) => {
+    if (!pendingAction || !isMyTurn) return;
+    if (pendingAction.kind === "attach" && card) {
+      const next = attachEnergy(gameState, playerSide, pendingAction.cardInstanceId, card.instanceId);
+      applyAndSync(next);
+      setPendingAction(null);
+    } else if (pendingAction.kind === "evolve" && card) {
+      const next = evolvePokemon(gameState, playerSide, pendingAction.cardInstanceId, card.instanceId);
+      applyAndSync(next);
+      setPendingAction(null);
+    } else if (pendingAction.kind === "trainer_target" && card) {
+      const next = playTrainer(gameState, playerSide, pendingAction.cardInstanceId, { targetInstanceId: card.instanceId });
+      applyAndSync(next);
+      setPendingAction(null);
+    }
+  }, [pendingAction, isMyTurn, gameState, playerSide, applyAndSync]);
+
+  const onPlayerBenchClick = useCallback((card) => {
+    if (!pendingAction || !isMyTurn) return;
+    if (pendingAction.kind === "attach" && card) {
+      const next = attachEnergy(gameState, playerSide, pendingAction.cardInstanceId, card.instanceId);
+      applyAndSync(next);
+      setPendingAction(null);
+    } else if (pendingAction.kind === "evolve" && card) {
+      const next = evolvePokemon(gameState, playerSide, pendingAction.cardInstanceId, card.instanceId);
+      applyAndSync(next);
+      setPendingAction(null);
+    } else if (pendingAction.kind === "retreat" && card) {
+      // Discard enough energy automatically (player's lowest-priority ones).
+      const active = playerState.activePokemon;
+      const cost = active?.def?.convertedRetreatCost || 0;
+      const energyIds = (active?.energyAttached || []).slice(0, cost).map(e => e.instanceId);
+      const next = retreat(gameState, playerSide, card.instanceId, energyIds);
+      applyAndSync(next);
+      setPendingAction(null);
+    } else if (pendingAction.kind === "trainer_target" && card) {
+      const next = playTrainer(gameState, playerSide, pendingAction.cardInstanceId, { benchInstanceId: card.instanceId, targetInstanceId: card.instanceId });
+      applyAndSync(next);
+      setPendingAction(null);
+    }
+  }, [pendingAction, isMyTurn, gameState, playerSide, applyAndSync, playerState]);
+
+  const onOpponentCardClick = useCallback((card) => {
+    if (!pendingAction || !isMyTurn || !card) return;
+    if (pendingAction.kind === "trainer_target") {
+      const next = playTrainer(gameState, playerSide, pendingAction.cardInstanceId, { benchInstanceId: card.instanceId });
+      applyAndSync(next);
+      setPendingAction(null);
+    }
+  }, [pendingAction, isMyTurn, gameState, playerSide, applyAndSync]);
+
+  // Drag-and-drop handler for hand cards. Takes the raw drop-zone + target
+  // instanceId decoded by HandPanel and dispatches the appropriate action,
+  // mirroring the click-based flow in onHandCardClick + onPlayerActive/Bench.
+  const onHandCardDrop = useCallback((card, zone, targetInstanceId) => {
+    if (!isMyTurn || !playerState) return;
+    const kind = handCardKind(card);
+    if (kind === "basic") {
+      if (zone === "player-active" && !playerState.activePokemon) {
+        applyAndSync(setActivePokemon(gameState, playerSide, card.instanceId));
+      } else if (zone === "player-bench" && playerState.bench.length < 5) {
+        applyAndSync(playBasicToBench(gameState, playerSide, card.instanceId));
+      }
+      setPendingAction(null);
+      return;
+    }
+    if (kind === "energy" && targetInstanceId && !playerState.energyAttachedThisTurn) {
+      applyAndSync(attachEnergy(gameState, playerSide, card.instanceId, targetInstanceId));
+      setPendingAction(null);
+      return;
+    }
+    if (kind === "evolution" && targetInstanceId) {
+      applyAndSync(evolvePokemon(gameState, playerSide, card.instanceId, targetInstanceId));
+      setPendingAction(null);
+      return;
+    }
+    if (kind === "supporter" || kind === "item" || kind === "stadium") {
+      const targets = targetInstanceId
+        ? { targetInstanceId, benchInstanceId: targetInstanceId }
+        : {};
+      applyAndSync(playTrainer(gameState, playerSide, card.instanceId, targets));
+      setPendingAction(null);
+    }
+  }, [isMyTurn, playerState, gameState, playerSide, applyAndSync]);
+
+  const onRetreat = useCallback(() => {
+    if (!isMyTurn || !playerState?.activePokemon || playerState.bench.length === 0) return;
+    setPendingAction({ kind: "retreat", label: "Choose bench Pokémon to swap in" });
+  }, [isMyTurn, playerState]);
+
+  const onEndTurn = useCallback(async () => {
+    if (!isMyTurn) return;
+    const next = endTurn(gameState);
+    soundManager.turnEnd();
+    setPendingAction(null);
+    await applyAndSync(next);
+  }, [isMyTurn, gameState, applyAndSync]);
 
   const handleAttack = useCallback(async (attackIndex) => {
     if (!isMyTurn || !gameState) return;
@@ -644,9 +1039,17 @@ export default function Battle() {
 
         {/* Opponent field */}
         <div className="rounded-2xl border border-border bg-card p-4">
-          <PlayerField playerState={opponentState} isOpponent={true}
+          <PlayerField
+            playerState={opponentState}
+            isOpponent={true}
             isActivePlayer={gameState.activePlayer === opponentSide}
-            lastDamage={lastDamageAI} label={opponentState.name || "Opponent"} />
+            lastDamage={lastDamageAI}
+            label={opponentState.name || "Opponent"}
+            selectable={pendingAction?.kind === "trainer_target" && isMyTurn}
+            onActiveClick={pendingAction?.kind === "trainer_target" && isMyTurn ? onOpponentCardClick : undefined}
+            onBenchClick={pendingAction?.kind === "trainer_target" && isMyTurn ? onOpponentCardClick : undefined}
+            onInspect={setInspectCard}
+          />
         </div>
 
         {/* VS divider */}
@@ -661,9 +1064,19 @@ export default function Battle() {
 
         {/* Player field */}
         <div className="rounded-2xl border border-border bg-card p-4">
-          <PlayerField playerState={playerState} isOpponent={false}
+          <PlayerField
+            playerState={playerState}
+            isOpponent={false}
             isActivePlayer={gameState.activePlayer === playerSide}
-            lastDamage={lastDamagePlayer} label="You" />
+            lastDamage={lastDamagePlayer}
+            label="You"
+            selectable={Boolean(pendingAction) && isMyTurn}
+            onActiveClick={isMyTurn ? onPlayerActiveClick : undefined}
+            onBenchClick={isMyTurn ? onPlayerBenchClick : undefined}
+            onInspect={setInspectCard}
+            canActActive={canActActive}
+            dropZoneIds={{ active: "player-active", bench: "player-bench" }}
+          />
         </div>
 
         {/* Action panel */}
@@ -679,30 +1092,68 @@ export default function Battle() {
               {isMyTurn && <Badge className="bg-primary/20 text-primary border-primary/30">Your Turn</Badge>}
             </div>
 
-            {isMyTurn && playerActive ? (
-              <div className="space-y-2">
-                {attacks.length > 0
-                  ? attacks.map((atk, idx) => (
+            {isMyTurn ? (
+              <div className="space-y-3">
+                {pendingAction && (
+                  <div className="rounded-xl border border-primary/40 bg-primary/10 px-3 py-2 flex items-center justify-between gap-2">
+                    <p className="text-xs font-body text-foreground/90">{pendingAction.label}</p>
+                    <Button size="sm" variant="ghost" onClick={() => setPendingAction(null)} className="h-7 font-body">Cancel</Button>
+                  </div>
+                )}
+
+                {/* Hand strip */}
+                <div>
+                  <p className="text-[11px] uppercase tracking-widest text-muted-foreground font-body mb-1">Hand</p>
+                  <HandPanel
+                    hand={playerState.hand || []}
+                    selectedId={pendingAction?.cardInstanceId}
+                    onCardClick={onHandCardClick}
+                    onCardDrop={onHandCardDrop}
+                    onCardInspect={setInspectCard}
+                    dimmed={Boolean(pendingAction)}
+                    playableIds={playableHandIds}
+                  />
+                </div>
+
+                {/* Attacks (only when an Active Pokémon is present) */}
+                {playerActive && attacks.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[11px] uppercase tracking-widest text-muted-foreground font-body">Attacks</p>
+                    {attacks.map((atk, idx) => (
                       <AttackButton key={idx} attack={atk} index={idx} onAttack={handleAttack}
-                        disabled={!isMyTurn} canAfford={canAffordAttack(playerActive, atk)} />
-                    ))
-                  : <p className="text-sm font-body text-muted-foreground">No attacks available.</p>
-                }
-                {attacks.length > 0 && attacks.every(a => !canAffordAttack(playerActive, a)) && (
+                        disabled={!isMyTurn || Boolean(pendingAction)} canAfford={canAffordAttack(playerActive, atk)} />
+                    ))}
+                  </div>
+                )}
+
+                {/* Turn controls */}
+                <div className="flex flex-wrap gap-2">
+                  {playerState.activePokemon && playerState.bench.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={Boolean(pendingAction)}
+                      onClick={onRetreat}
+                      className="font-body"
+                    >
+                      Retreat
+                    </Button>
+                  )}
                   <Button
-                    variant="outline"
+                    variant="default"
                     size="sm"
-                    onClick={async () => {
-                      const next = endTurn(gameState);
-                      lastLocalTurnRef.current = next.turn || 0;
-                      soundManager.turnEnd();
-                      setGameState(next);
-                      if (roomId) await syncGameState(roomId, next).catch(() => {});
-                    }}
-                    className="w-full font-body"
+                    disabled={Boolean(pendingAction)}
+                    onClick={onEndTurn}
+                    className="font-body ml-auto"
                   >
-                    Pass Turn (need more energy)
+                    End Turn
                   </Button>
+                </div>
+
+                {!playerState.activePokemon && (
+                  <p className="text-xs font-body text-yellow-400">
+                    Pick a Basic Pokémon from your hand to place as Active.
+                  </p>
                 )}
               </div>
             ) : (
@@ -726,6 +1177,130 @@ export default function Battle() {
         </div>
 
       </div>
+
+      <CardInspectorModal card={inspectCard} onClose={() => setInspectCard(null)} />
     </div>
+  );
+}
+
+// Read-only modal that shows the full card details. Opened by right-clicking
+// any card in hand, on the player's field, or on the opponent's field.
+function CardInspectorModal({ card, onClose }) {
+  if (!card) return null;
+  const def = card.def || card;
+  const style = getTypeStyle(def?.energy_type || (def?.types?.[0] || "").toLowerCase() || "colorless");
+  const img = def?.image_large || def?.image_small || def?.imageLarge || def?.imageSmall;
+  const attacks = def?.attacks || [];
+  const abilities = def?.abilities || [];
+  const rules = def?.rules || (def?.description ? [def.description] : []);
+  const hp = def?.hp ? Number(def.hp) : null;
+  const weaknesses = def?.weaknesses || [];
+  const resistances = def?.resistances || [];
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+        onClick={onClose}
+        onContextMenu={(e) => { e.preventDefault(); onClose(); }}
+      >
+        <motion.div
+          initial={{ scale: 0.9, y: 20, opacity: 0 }}
+          animate={{ scale: 1, y: 0, opacity: 1 }}
+          exit={{ scale: 0.95, opacity: 0 }}
+          onClick={(e) => e.stopPropagation()}
+          className="relative max-w-lg w-full rounded-2xl border border-border bg-card overflow-hidden"
+        >
+          <button
+            onClick={onClose}
+            className="absolute top-2 right-2 z-10 rounded-full bg-black/40 hover:bg-black/60 w-8 h-8 flex items-center justify-center text-white"
+            aria-label="Close"
+          >
+            ×
+          </button>
+          <div className={`relative h-64 bg-gradient-to-br ${style.bg} flex items-center justify-center overflow-hidden`}>
+            {img
+              ? <img src={img} alt={def?.name} className="h-full w-auto object-contain drop-shadow-xl" />
+              : <TypeIcon type={def?.energy_type || (def?.types?.[0] || "colorless").toLowerCase()} size={96} />}
+          </div>
+          <div className="p-4 space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="font-display text-xl font-bold leading-tight">{def?.name}</p>
+                <p className="text-xs font-body text-muted-foreground">
+                  {def?.supertype || def?.card_type} {def?.stage ? `· ${def.stage}` : ""} {def?.set_name ? `· ${def.set_name}` : ""}
+                </p>
+              </div>
+              {hp != null && (
+                <div className="text-right">
+                  <p className="font-display text-2xl font-bold">{hp}</p>
+                  <p className="text-[10px] font-body text-muted-foreground uppercase">HP</p>
+                </div>
+              )}
+            </div>
+
+            {abilities.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[11px] uppercase tracking-widest text-muted-foreground font-body">Abilities</p>
+                {abilities.map((a, i) => (
+                  <div key={i} className="rounded-lg border border-primary/40 bg-primary/5 p-2.5">
+                    <p className="font-display font-bold text-sm">{a.name}</p>
+                    <p className="text-xs font-body text-muted-foreground mt-0.5">{a.text}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {attacks.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[11px] uppercase tracking-widest text-muted-foreground font-body">Attacks</p>
+                {attacks.map((a, i) => (
+                  <div key={i} className="rounded-lg border border-border bg-card p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-display font-bold text-sm">{a.name}</p>
+                      <span className="font-display text-lg font-black text-primary">{a.damageValue || a.damage || 0}</span>
+                    </div>
+                    <p className="text-[11px] font-body text-muted-foreground">
+                      Cost: {(a.cost || []).join(", ") || "Free"}
+                    </p>
+                    {a.text && <p className="text-xs font-body mt-1 text-foreground/90">{a.text}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {rules.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-[11px] uppercase tracking-widest text-muted-foreground font-body">Rules</p>
+                {rules.map((r, i) => (
+                  <p key={i} className="text-xs font-body text-foreground/80">{r}</p>
+                ))}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2 text-[11px] font-body text-muted-foreground pt-1">
+              {weaknesses.map((w, i) => (
+                <span key={`w-${i}`} className="rounded px-2 py-0.5 border border-red-500/40 bg-red-500/10 text-red-300">
+                  Weak: {w.type} {w.value}
+                </span>
+              ))}
+              {resistances.map((r, i) => (
+                <span key={`r-${i}`} className="rounded px-2 py-0.5 border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">
+                  Resist: {r.type} {r.value}
+                </span>
+              ))}
+              {def?.convertedRetreatCost != null && (
+                <span className="rounded px-2 py-0.5 border border-border bg-secondary">
+                  Retreat: {def.convertedRetreatCost}
+                </span>
+              )}
+            </div>
+            <p className="text-[10px] font-body text-muted-foreground italic pt-1">
+              Right-click again or click outside to close.
+            </p>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
   );
 }
