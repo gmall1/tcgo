@@ -80,14 +80,35 @@ const SET_CODE_MAP = {
   BASE: "base1",
 };
 
+// Lazy-loaded static index produced by `pnpm build:limitless-index`. Maps
+// PTCGO set-code + collector number directly to a pokemontcg.io id so the
+// importer can resolve most cards offline without a live API round-trip.
+let _limitlessIndexPromise = null;
+function loadLimitlessIndex() {
+  if (_limitlessIndexPromise) return _limitlessIndexPromise;
+  _limitlessIndexPromise = import("@/lib/limitlessIndex.json")
+    .then((m) => m.default || m)
+    .catch(() => ({ byCode: {}, byName: {} }));
+  return _limitlessIndexPromise;
+}
+
 async function resolveDecklistToIds(parsed) {
   const ids = [];
   const missing = [];
+  const index = await loadLimitlessIndex();
   for (const line of parsed.lines) {
-    const mapped = line.setCode ? SET_CODE_MAP[line.setCode.toUpperCase()] : null;
+    const upper = line.setCode ? line.setCode.toUpperCase() : null;
     let cardId = null;
-    if (mapped) {
-      cardId = `${mapped}-${line.number}`;
+
+    // 1) Static Limitless index by set-code + number.
+    if (upper) {
+      cardId = index.byCode?.[`${upper}-${line.number}`] || null;
+    }
+    // 2) Hardcoded SET_CODE_MAP fallback (covers codes not in the index yet).
+    if (!cardId && upper && SET_CODE_MAP[upper]) {
+      cardId = `${SET_CODE_MAP[upper]}-${line.number}`;
+    }
+    if (cardId) {
       try {
         const [card] = await fetchCardsByIds([cardId]);
         if (card) {
@@ -99,7 +120,23 @@ async function resolveDecklistToIds(parsed) {
         // fall through to name search
       }
     }
-    // Best-effort by name
+    // 3) Index-by-name → pick a specific id and hydrate via API.
+    const nameKey = line.name.toLowerCase().trim();
+    const nameHits = index.byName?.[nameKey] || [];
+    if (nameHits.length) {
+      const picked = nameHits[0];
+      try {
+        const [card] = await fetchCardsByIds([picked]);
+        if (card) {
+          registerCatalogCards([normalizeApiCardToCatalog(card)]);
+          for (let i = 0; i < line.qty; i++) ids.push(picked);
+          continue;
+        }
+      } catch {
+        // fall through to live search
+      }
+    }
+    // 4) Live name search as last resort.
     try {
       const { cards } = await searchCards(`name:"${line.name.replace(/"/g, "")}"`, 1, 1);
       const first = cards?.[0];

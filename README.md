@@ -35,6 +35,21 @@ pnpm test:watch  # vitest --watch
 pnpm build       # production build
 ```
 
+## Limitless decklist importer index
+
+`/ai-deck-builder` can resolve a pasted Limitless-format decklist (`4 Charizard
+ex OBF 125`) without a live API round-trip per line once you have built the
+static index:
+
+```bash
+# optional: POKEMONTCG_API_KEY=xxx for higher rate limits
+pnpm build:limitless-index
+```
+
+This paginates `api.pokemontcg.io/v2/cards` (~20k cards) and writes
+`src/lib/limitlessIndex.json`. The importer lazy-loads it; when the file is
+missing it falls back to the live API.
+
 ## Online multiplayer
 
 Network play is optional. Without a backend configured, rooms live in
