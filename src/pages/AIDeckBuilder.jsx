@@ -226,7 +226,8 @@ The counts must sum to exactly 60. At least 12 Pokémon. At most 4 of any non-en
           warnings.push(`Unknown id: ${entry.id}`);
           continue;
         }
-        const n = Math.max(1, Math.min(Number(entry.count) || 1, 4));
+        const isEnergy = c.card_type === "energy";
+        const n = Math.max(1, Math.min(Number(entry.count) || 1, isEnergy ? 60 : 4));
         for (let i = 0; i < n; i++) ids.push(entry.id);
       }
       if (ids.length < 40) {
