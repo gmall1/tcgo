@@ -114,8 +114,17 @@ export function createPlayerState(playerDef) {
 }
 
 // ── Full game state ────────────────────────────────────────
-export function createGameState(p1Def, p2Def, mode = "unlimited") {
-  const firstPlayer = coinFlip() === "heads" ? "player1" : "player2";
+// Optional `opts.firstPlayer` ("player1" | "player2") lets the caller override
+// the coin toss — e.g. when replaying a sync'd seed from the network so both
+// clients derive the same start state, or when the winner of the toss has
+// chosen to go second. If omitted, a fair coin flip picks the first player.
+export function createGameState(p1Def, p2Def, mode = "unlimited", opts = {}) {
+  const flip = opts.flip || coinFlip();
+  // `tossWinner` is who won the flip; `firstPlayer` is who *actually* moves
+  // first (defaults to tossWinner but can be overridden if the winner chose
+  // to go second — `opts.firstPlayer`).
+  const tossWinner = flip === "heads" ? "player1" : "player2";
+  const firstPlayer = opts.firstPlayer || tossWinner;
   return {
     mode,
     turn: 1,
@@ -124,12 +133,52 @@ export function createGameState(p1Def, p2Def, mode = "unlimited") {
     player1: createPlayerState({ ...p1Def, id: "player1" }),
     player2: createPlayerState({ ...p2Def, id: "player2" }),
     winner: null,
-    log: [`${firstPlayer === "player1" ? p1Def.name : p2Def.name} goes first!`],
+    log: [
+      `Coin flip: ${flip} — ${tossWinner === "player1" ? p1Def.name : p2Def.name} wins the toss.`,
+      `${firstPlayer === "player1" ? p1Def.name : p2Def.name} goes first!`,
+    ],
     coinFlipResults: [],
     lastAction: null,
     // Monotonically-increasing version used by multiplayerSync to pick the
     // authoritative snapshot when two clients diverge mid-turn.
     stateVersion: 0,
+    // Surfaced so the UI can play the toss animation and let the winner
+    // choose to go first or second. `awaitingChoice` starts true unless
+    // the caller explicitly passed `opts.firstPlayer` (e.g. from network
+    // sync or deterministic replay).
+    initialCoinToss: {
+      flip,            // "heads" | "tails"
+      tossWinner,      // "player1" | "player2"
+      firstPlayer,     // "player1" | "player2"
+      awaitingChoice: !opts.firstPlayer,
+      chosen: opts.firstPlayer ? (opts.firstPlayer === tossWinner ? "first" : "second") : null,
+    },
+  };
+}
+
+// Apply the coin-toss winner's "go first" / "go second" choice. Called from
+// the UI once the toss overlay is dismissed. Idempotent — re-running with
+// the same choice is safe.
+export function resolveCoinTossChoice(gs, choice) {
+  if (!gs?.initialCoinToss) return gs;
+  const { tossWinner } = gs.initialCoinToss;
+  const firstPlayer = choice === "first"
+    ? tossWinner
+    : (tossWinner === "player1" ? "player2" : "player1");
+  return {
+    ...gs,
+    activePlayer: firstPlayer,
+    stateVersion: (gs.stateVersion || 0) + 1,
+    log: [
+      ...(gs.log || []),
+      `${gs[tossWinner]?.name || tossWinner} chose to go ${choice}.`,
+    ],
+    initialCoinToss: {
+      ...gs.initialCoinToss,
+      firstPlayer,
+      chosen: choice,
+      awaitingChoice: false,
+    },
   };
 }
 
@@ -600,17 +649,30 @@ export function performAttack(gs, attackIndex) {
   }
 
   // Apply attack text effects (skeleton — expand per card). When the defender
-  // is protected (Agility-style) the resolver still runs for self-targeting
-  // side effects on the attacker (`ps`): heal self, discard own energy, draw.
-  // But ANY effect on the defender / opp (status, locks, energy discard from
-  // defender, bench damage) must be dropped — per the protection intent. We
-  // deep-clone `opp` pre-resolver so we can restore it after the resolver
-  // has mutated it, instead of trying to selectively undo specific fields.
-  const preResolverOpp = defenderProtected ? structuredClone(opp) : null;
+  // is protected (Agility-style "prevent all effects of attacks done to this
+  // Pokémon") the protection applies only to the defender itself — status,
+  // locks, and energy discard targeting THIS Pokémon are dropped. Effects
+  // that hit the rest of the opponent's side (bench damage, mill, hand
+  // discard) still land because they aren't done "to this Pokémon". We do
+  // this by snapshotting the pre-resolver defender and, post-resolver,
+  // restoring only `opp.activePokemon` while keeping `opp.bench/deck/hand`
+  // mutations from the resolver.
+  const preResolverDefender = defenderProtected ? structuredClone(defender) : null;
   const effects = resolveAttackText(attack, attacker, defender, finalDmg, ps, opp, newLog, gs);
   finalDmg = defenderProtected ? 0 : effects.damage;
   ps = effects.ps;
-  opp = defenderProtected ? preResolverOpp : effects.opp;
+  opp = effects.opp;
+  if (defenderProtected) {
+    // Restore defender active card; then un-duplicate any of its energy that
+    // the resolver moved into opp.discard (since we're putting it back).
+    const preIds = new Set((preResolverDefender?.energyAttached || []).map(e => e.instanceId));
+    const postIds = new Set((opp.activePokemon?.energyAttached || []).map(e => e.instanceId));
+    const movedIds = [...preIds].filter(id => !postIds.has(id));
+    if (movedIds.length > 0) {
+      opp.discard = opp.discard.filter(c => !movedIds.includes(c.instanceId));
+    }
+    opp.activePokemon = preResolverDefender;
+  }
   newLog.push(...effects.extraLog);
 
   // Consume the one-shot damage bonus regardless of outcome.
@@ -628,18 +690,12 @@ export function performAttack(gs, attackIndex) {
     }
   }
 
-  // Apply damage. When the defender is not protected, use the reference
-  // mutated by `resolveAttackText` (via `opp = effects.opp`) so status
-  // conditions, `cantAttackUntilTurn`, energy discards, etc. set during
-  // resolution are preserved. When the defender IS protected (Agility-style
-  // `preventEffectsUntilTurn`), fall back to the pre-resolver `defender`
-  // snapshot so status riders are also blocked — per the intent at the
-  // `defenderProtected` branch above ("drops damage and blocks status
-  // riders"). Self-targeting side effects on the attacker / opp bench / hand
-  // already flowed through `ps` and `opp` before this step, so they survive.
+  // Apply damage. `opp.activePokemon` is either the resolver-mutated defender
+  // (normal path) or the pre-resolver defender (protected path — see above).
+  // Protected defenders also take 0 damage because `finalDmg` was zeroed.
   const currentDefender = opp.activePokemon || defender;
   let newDefender = defenderProtected
-    ? { ...defender }
+    ? { ...currentDefender }
     : { ...currentDefender, damage: currentDefender.damage + finalDmg, damageReduction: 0 };
   opp.activePokemon = newDefender;
 

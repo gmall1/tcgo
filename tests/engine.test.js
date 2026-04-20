@@ -456,3 +456,100 @@ describe("performAttack — Agility-style protection blocks status riders (BUG #
     expect(next.player2.discard.length).toBe(0);
   });
 });
+
+// ──────────────────────────────────────────────────────────────
+// BUG #5 (narrow-fix): Agility protection wraps ONLY the Defending
+// Pokémon — per rulebook "prevent all effects of attacks done to this
+// Pokémon." Effects that target the rest of the opponent's side (bench
+// damage, mill, hand effects) must still land. The prior fix cloned and
+// restored the entire `opp` which dropped those mutations too.
+// ──────────────────────────────────────────────────────────────
+describe("performAttack — Agility narrow-restore (BUG #5)", () => {
+  it("applies bench damage even when active defender is protected", () => {
+    const attackerDef = makeCardDef({
+      id: "benchSniper",
+      name: "Bench Sniper",
+      types: ["Fighting"],
+      attacks: [
+        {
+          name: "Earthquake",
+          damageValue: 40,
+          cost: ["Colorless"],
+          text: "Does 10 damage to each of your opponent's Benched Pokémon.",
+        },
+      ],
+    });
+    const defenderDef = makeCardDef({ id: "agile4", name: "Agile Active", hp: 100 });
+    const defender = makePlayCard(defenderDef, { preventEffectsUntilTurn: 1 });
+    const benchMon = makePlayCard(makeCardDef({ id: "benched", name: "Bench Mon", hp: 80 }));
+    const gs = makeGame({
+      p1: makePlayerState({
+        id: "player1",
+        name: "P1",
+        activePokemon: makePlayCard(attackerDef, {
+          energyAttached: [makeEnergy("Colorless")],
+        }),
+      }),
+      p2: makePlayerState({
+        id: "player2",
+        name: "P2",
+        activePokemon: defender,
+        bench: [benchMon],
+      }),
+    });
+
+    const next = performAttack(gs, 0);
+
+    // Active defender blocked.
+    expect(next.player2.activePokemon.damage).toBe(0);
+    // Bench Pokémon still took the bench-damage rider — it wasn't "done to
+    // this Pokémon".
+    expect(next.player2.bench[0].damage).toBeGreaterThanOrEqual(10);
+  });
+
+  it("does not duplicate protected defender energy in the opp discard pile", () => {
+    // Regression for the narrow-restore implementation: when we restore
+    // opp.activePokemon from the pre-resolver snapshot, any energy the
+    // resolver moved into opp.discard must be filtered out so the same
+    // energy card doesn't exist in both places.
+    const attackerDef = makeCardDef({
+      id: "drainProt2",
+      name: "Energy Thief 2",
+      types: ["Darkness"],
+      attacks: [
+        {
+          name: "Energy Drain",
+          damageValue: 20,
+          cost: ["Colorless"],
+          text: "Discard 1 Energy from the Defending Pokémon.",
+        },
+      ],
+    });
+    const defenderDef = makeCardDef({ id: "agile5", name: "Agile Mon 5", hp: 120 });
+    const waterA = makeEnergy("Water");
+    const waterB = makeEnergy("Water");
+    const defender = makePlayCard(defenderDef, {
+      preventEffectsUntilTurn: 1,
+      energyAttached: [waterA, waterB],
+    });
+    const gs = makeGame({
+      p1: makePlayerState({
+        id: "player1",
+        name: "P1",
+        activePokemon: makePlayCard(attackerDef, {
+          energyAttached: [makeEnergy("Colorless")],
+        }),
+      }),
+      p2: makePlayerState({ id: "player2", name: "P2", activePokemon: defender }),
+    });
+
+    const next = performAttack(gs, 0);
+
+    // Energy restored onto the defender.
+    expect(next.player2.activePokemon.energyAttached.length).toBe(2);
+    // And NOT also sitting in the discard pile (no duplication).
+    const allIds = next.player2.activePokemon.energyAttached.map(e => e.instanceId);
+    const dupInDiscard = next.player2.discard.filter(c => allIds.includes(c.instanceId));
+    expect(dupInDiscard.length).toBe(0);
+  });
+});

@@ -25,6 +25,7 @@ import {
   evolvePokemon,
   retreat,
   playTrainer,
+  resolveCoinTossChoice,
 } from "@/lib/gameEngine";
 import { performAITurn, getAICommentary } from "@/lib/aiOpponent";
 import {
@@ -232,104 +233,219 @@ function PokemonCard({ playCard, isActivePlayer, isOpponent, lastDamage, onInspe
   );
 }
 
-function PlayerField({ playerState, isOpponent, isActivePlayer, lastDamage, label, onActiveClick, onBenchClick, selectable, onInspect, canActActive, dropZoneIds }) {
+// Face-down card back used for Prize piles + opponent hand count + deck top.
+// Purely presentational — supports tiny (prize/deck thumbnail) and small
+// (active-slot placeholder) sizes.
+function CardBack({ size = "sm", label = null, count = null }) {
+  const dim = size === "tiny"
+    ? "w-6 h-9"
+    : size === "xs"
+      ? "w-10 h-14"
+      : size === "sm"
+        ? "w-14 h-20"
+        : "w-20 h-28";
+  return (
+    <div className={`relative ${dim} rounded-md border border-blue-900/70 bg-gradient-to-br from-blue-900 via-indigo-800 to-blue-950 shadow-inner overflow-hidden flex items-center justify-center`}>
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08)_0%,transparent_60%)]" />
+      <div className="font-display text-[9px] font-black text-yellow-300/90 tracking-widest uppercase rotate-[-20deg]">TCG</div>
+      {count != null && (
+        <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground rounded-full text-[10px] font-body font-bold w-5 h-5 flex items-center justify-center shadow">{count}</span>
+      )}
+      {label && (
+        <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[9px] font-body text-center py-0.5 uppercase tracking-widest">{label}</span>
+      )}
+    </div>
+  );
+}
+
+// Small preview that shows the top face-up card of the discard pile plus a
+// count badge. Click to peek the full list (handled by parent).
+function DiscardStack({ discard, onClick, label = "Discard" }) {
+  const top = discard?.[discard.length - 1];
+  const def = top?.def;
+  const img = def?.image_small || def?.imageSmall;
+  const count = discard?.length || 0;
+  return (
+    <button
+      type="button"
+      onClick={count > 0 ? onClick : undefined}
+      disabled={count === 0}
+      className={`relative w-14 h-20 rounded-md border ${count > 0 ? "border-rose-400/60 hover:ring-2 hover:ring-rose-400/40 cursor-pointer" : "border-border/60 cursor-default"} bg-card overflow-hidden flex items-center justify-center`}
+      title={count > 0 ? `${label} (${count})` : `${label} (empty)`}
+    >
+      {top
+        ? (img
+            ? <img src={img} alt={def?.name} className="w-full h-full object-cover opacity-80" loading="lazy" />
+            : <TypeIcon type={def?.energy_type || (def?.types?.[0] || "colorless").toLowerCase()} size={22} />)
+        : <span className="text-[9px] font-body text-muted-foreground">Empty</span>
+      }
+      <span className="absolute inset-x-0 bottom-0 bg-black/70 text-white text-[9px] font-body text-center py-0.5 uppercase tracking-widest">
+        {label} {count}
+      </span>
+    </button>
+  );
+}
+
+function PlayerField({
+  playerState,
+  isOpponent,
+  isActivePlayer,
+  lastDamage,
+  label,
+  onActiveClick,
+  onBenchClick,
+  selectable,
+  onInspect,
+  canActActive,
+  dropZoneIds,
+  onDiscardClick,
+  inlineActiveChildren,
+}) {
   const active = playerState?.activePokemon;
   const bench = playerState?.bench || [];
-  const prizes = playerState?.prizeCards?.length ?? 0;
+  const prizesRemaining = playerState?.prizeCards?.length ?? 6;
   const hand = playerState?.hand?.length ?? 0;
   const deckLeft = playerState?.deck?.length ?? 0;
+  const discardCount = playerState?.discard?.length ?? 0;
+
+  // Prize pile: one face-down thumbnail per remaining prize, stacked in a
+  // compact 2×3 grid on the left of the field (matches the rulebook layout).
+  const prizeSlots = Array.from({ length: 6 }, (_, i) => i < prizesRemaining);
+
+  // Bench is always 5 slots, filled with the current bench Pokémon + empty
+  // drop zones. This matches the rulebook's fixed-5 bench layout and makes
+  // drop targeting unambiguous.
+  const benchSlots = Array.from({ length: 5 }, (_, i) => bench[i] || null);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <p className="text-xs uppercase tracking-widest font-body text-muted-foreground">{label}</p>
+        <div className="flex items-center gap-2 min-w-0">
+          <p className="text-xs uppercase tracking-widest font-body text-muted-foreground truncate">{label}</p>
           {isActivePlayer && (
             <motion.span animate={{ scale: [1, 1.2, 1] }} transition={{ repeat: Infinity, duration: 1.4 }}
-              className="inline-block w-2 h-2 rounded-full bg-primary" />
+              className="inline-block w-2 h-2 rounded-full bg-primary flex-shrink-0" />
           )}
         </div>
-        <div className="flex items-center gap-3 text-xs font-body text-muted-foreground">
-          <span className="text-[11px] font-body text-muted-foreground">Prize {6 - prizes}/6</span>
-          <span className="text-[11px] font-body text-muted-foreground">Hand {hand}</span>
-          <span className="text-[11px] font-body text-muted-foreground">Deck {deckLeft}</span>
+        <div className="flex items-center gap-3 text-[11px] font-body text-muted-foreground">
+          <span>Prize {6 - prizesRemaining}/6</span>
+          <span>Hand {hand}</span>
+          <span>Deck {deckLeft}</span>
+          {discardCount > 0 && <span>Disc {discardCount}</span>}
         </div>
       </div>
 
-      {active
-        ? (
-            <div
-              data-dropzone={dropZoneIds?.active || null}
-              data-instanceid={active.instanceId}
-              onClick={onActiveClick ? () => onActiveClick(active) : undefined}
-              className={`${selectable ? "ring-2 ring-primary/60 ring-offset-2 ring-offset-background rounded-2xl cursor-pointer" : ""}`}
-            >
-              <PokemonCard
-                playCard={active}
-                isActivePlayer={isActivePlayer}
-                isOpponent={isOpponent}
-                lastDamage={lastDamage}
-                onInspect={onInspect}
-                canAct={Boolean(canActActive)}
-              />
-            </div>
-          )
-        : <div
-            data-dropzone={dropZoneIds?.active || null}
-            onClick={onActiveClick ? () => onActiveClick(null) : undefined}
-            className={`rounded-2xl border border-dashed h-36 flex items-center justify-center ${selectable ? "border-primary/60 bg-primary/5 cursor-pointer" : "border-border bg-card/50"}`}
-          >
-            <p className="text-sm font-body text-muted-foreground">{selectable ? "Place here" : "No Active Pokémon"}</p>
+      <div className="flex items-stretch gap-2">
+        {/* Prize column (left) */}
+        <div className="flex flex-col items-center justify-between gap-1.5 flex-shrink-0">
+          <p className="text-[9px] font-body uppercase tracking-widest text-muted-foreground">Prizes</p>
+          <div className="grid grid-cols-2 gap-1">
+            {prizeSlots.map((filled, i) => (
+              filled
+                ? <CardBack key={i} size="tiny" />
+                : <div key={i} className="w-6 h-9 rounded-md border border-dashed border-border/40" />
+            ))}
           </div>
-      }
-
-      {(bench.length > 0 || selectable) && (
-        <div className="grid grid-cols-5 gap-1.5">
-          {bench.map((b) => {
-            const bs = getTypeStyle(b.def?.energy_type || (b.def?.types?.[0]||"").toLowerCase() || "colorless");
-            const bHp = b.def?.hp ? Number(b.def.hp) : 100;
-            const bPct = Math.max(0, (bHp - (b.damage||0)) / bHp);
-            const bImg = b.def?.image_small || b.def?.imageSmall;
-            return (
-              <motion.div
-                key={b.instanceId}
-                layout
-                data-dropzone={dropZoneIds?.bench || null}
-                data-instanceid={b.instanceId}
-                onClick={onBenchClick ? () => onBenchClick(b) : undefined}
-                onContextMenu={onInspect ? (e) => { e.preventDefault(); onInspect(b); } : undefined}
-                className={`rounded-lg border overflow-hidden ${selectable ? "border-primary/60 cursor-pointer" : "border-border"} bg-card`}>
-                <div className={`h-12 bg-gradient-to-br ${bs.bg} flex items-center justify-center`}>
-                  {bImg ? <img src={bImg} alt={b.def?.name} className="h-full w-auto object-contain" loading="lazy" />
-                    : <TypeIcon type={b.def?.energy_type || (b.def?.types?.[0] || "colorless").toLowerCase()} size={20} />}
-                </div>
-                <div className="h-1 bg-secondary">
-                  <div className={`h-full bg-gradient-to-r ${hpColor(bPct)}`} style={{ width: `${bPct*100}%` }} />
-                </div>
-                {b.specialCondition && (
-                  <div className="flex justify-center py-0.5"><StatusBadge condition={b.specialCondition} /></div>
-                )}
-                {(b.energyAttached?.length > 0) && (
-                  <div className="flex justify-center gap-0.5 py-0.5 bg-black/30">
-                    {b.energyAttached.slice(0, 4).map((_, i) => (
-                      <span key={i} className="w-2 h-2 rounded-full bg-yellow-400/80" />
-                    ))}
-                  </div>
-                )}
-              </motion.div>
-            );
-          })}
-          {selectable && bench.length < 5 && onBenchClick && (
-            <button
-              data-dropzone={dropZoneIds?.bench || null}
-              onClick={() => onBenchClick(null)}
-              className="rounded-lg border border-dashed border-primary/60 bg-primary/5 text-[10px] font-body text-muted-foreground h-12 hover:bg-primary/10"
-            >
-              Empty
-            </button>
-          )}
         </div>
-      )}
+
+        {/* Active + Bench center column */}
+        <div className="flex-1 min-w-0 flex flex-col items-center gap-2">
+          {active
+            ? (
+                <div
+                  data-dropzone={dropZoneIds?.active || null}
+                  data-instanceid={active.instanceId}
+                  onClick={onActiveClick ? () => onActiveClick(active) : undefined}
+                  className={`w-full max-w-[220px] ${selectable ? "ring-2 ring-primary/60 ring-offset-2 ring-offset-background rounded-2xl cursor-pointer" : ""}`}
+                >
+                  <PokemonCard
+                    playCard={active}
+                    isActivePlayer={isActivePlayer}
+                    isOpponent={isOpponent}
+                    lastDamage={lastDamage}
+                    onInspect={onInspect}
+                    canAct={Boolean(canActActive)}
+                  />
+                </div>
+              )
+            : <div
+                data-dropzone={dropZoneIds?.active || null}
+                onClick={onActiveClick ? () => onActiveClick(null) : undefined}
+                className={`w-full max-w-[220px] rounded-2xl border border-dashed h-32 flex items-center justify-center ${selectable ? "border-primary/60 bg-primary/5 cursor-pointer" : "border-border bg-card/50"}`}
+              >
+                <p className="text-xs font-body text-muted-foreground">{selectable ? "Place here" : "No Active"}</p>
+              </div>
+          }
+
+          {/* Inline children rendered under the active (e.g. attack buttons). */}
+          {inlineActiveChildren}
+
+          <div className="grid grid-cols-5 gap-1 w-full">
+            {benchSlots.map((b, idx) => {
+              if (!b) {
+                return (
+                  <button
+                    key={`empty-${idx}`}
+                    type="button"
+                    data-dropzone={dropZoneIds?.bench || null}
+                    onClick={onBenchClick ? () => onBenchClick(null) : undefined}
+                    disabled={!selectable}
+                    className={`rounded-md border border-dashed h-14 flex items-center justify-center ${selectable ? "border-primary/50 bg-primary/5 cursor-pointer hover:bg-primary/10" : "border-border/40 bg-card/30"}`}
+                  >
+                    <span className="text-[9px] font-body text-muted-foreground">{idx + 1}</span>
+                  </button>
+                );
+              }
+              const bs = getTypeStyle(b.def?.energy_type || (b.def?.types?.[0]||"").toLowerCase() || "colorless");
+              const bHp = b.def?.hp ? Number(b.def.hp) : 100;
+              const bPct = Math.max(0, (bHp - (b.damage||0)) / bHp);
+              const bImg = b.def?.image_small || b.def?.imageSmall;
+              return (
+                <motion.div
+                  key={b.instanceId}
+                  layout
+                  data-dropzone={dropZoneIds?.bench || null}
+                  data-instanceid={b.instanceId}
+                  onClick={onBenchClick ? () => onBenchClick(b) : undefined}
+                  onContextMenu={onInspect ? (e) => { e.preventDefault(); onInspect(b); } : undefined}
+                  className={`rounded-md border overflow-hidden ${selectable ? "border-primary/60 cursor-pointer" : "border-border"} bg-card`}
+                >
+                  <div className={`h-10 bg-gradient-to-br ${bs.bg} flex items-center justify-center`}>
+                    {bImg
+                      ? <img src={bImg} alt={b.def?.name} className="h-full w-auto object-contain" loading="lazy" />
+                      : <TypeIcon type={b.def?.energy_type || (b.def?.types?.[0] || "colorless").toLowerCase()} size={18} />}
+                  </div>
+                  <div className="h-1 bg-secondary">
+                    <div className={`h-full bg-gradient-to-r ${hpColor(bPct)}`} style={{ width: `${bPct*100}%` }} />
+                  </div>
+                  {b.specialCondition && (
+                    <div className="flex justify-center py-0.5"><StatusBadge condition={b.specialCondition} /></div>
+                  )}
+                  {(b.energyAttached?.length > 0) && (
+                    <div className="flex justify-center gap-0.5 py-0.5 bg-black/30">
+                      {b.energyAttached.slice(0, 4).map((_, i) => (
+                        <span key={i} className="w-1.5 h-1.5 rounded-full bg-yellow-400/80" />
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Deck + Discard column (right) */}
+        <div className="flex flex-col items-center justify-between gap-1.5 flex-shrink-0">
+          <div className="flex flex-col items-center gap-1">
+            <p className="text-[9px] font-body uppercase tracking-widest text-muted-foreground">Deck</p>
+            {deckLeft > 0
+              ? <CardBack size="sm" count={deckLeft} />
+              : <div className="w-14 h-20 rounded-md border border-dashed border-border/50 flex items-center justify-center text-[9px] text-muted-foreground">Empty</div>
+            }
+          </div>
+          <DiscardStack discard={playerState?.discard || []} onClick={() => onDiscardClick?.(playerState)} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -507,6 +623,11 @@ export default function Battle() {
   // Card pinned open in the inspector modal. Can be a playCard (from field)
   // or hand card (both wrap a `def`).
   const [inspectCard, setInspectCard] = useState(null);
+  // Toggled by clicking the player's own Active Pokémon — when true, attack
+  // buttons are rendered inline under the Active card. Click again to close.
+  const [showInlineAttacks, setShowInlineAttacks] = useState(true);
+  // Opens the discard-peek modal for a given player state.
+  const [discardPeek, setDiscardPeek] = useState(null);
   const recordedRef = useRef(false);
   const lastSyncedTurnRef = useRef(0);
   const lastLocalTurnRef = useRef(0);
@@ -790,7 +911,13 @@ export default function Battle() {
   }, [isMyTurn, playerState, gameState, playerSide, applyAndSync]);
 
   const onPlayerActiveClick = useCallback((card) => {
-    if (!pendingAction || !isMyTurn) return;
+    // With no pending action, clicking the player's own Active toggles the
+    // inline attack panel so the player can attack from the card itself.
+    if (!pendingAction) {
+      if (card) setShowInlineAttacks(v => !v);
+      return;
+    }
+    if (!isMyTurn) return;
     if (pendingAction.kind === "attach" && card) {
       const next = attachEnergy(gameState, playerSide, pendingAction.cardInstanceId, card.instanceId);
       applyAndSync(next);
@@ -1040,7 +1167,7 @@ export default function Battle() {
           )}
         </AnimatePresence>
 
-        {/* Opponent field */}
+        {/* Opponent field (top: Prize | Active + Bench | Deck + Discard) */}
         <div className="rounded-2xl border border-border bg-card p-4">
           <PlayerField
             playerState={opponentState}
@@ -1052,6 +1179,7 @@ export default function Battle() {
             onActiveClick={pendingAction?.kind === "trainer_target" && isMyTurn ? onOpponentCardClick : undefined}
             onBenchClick={pendingAction?.kind === "trainer_target" && isMyTurn ? onOpponentCardClick : undefined}
             onInspect={setInspectCard}
+            onDiscardClick={(ps) => setDiscardPeek({ state: ps, label: `${ps?.name || "Opponent"} discard` })}
           />
         </div>
 
@@ -1065,7 +1193,9 @@ export default function Battle() {
           <div className="flex-1 h-px bg-border" />
         </div>
 
-        {/* Player field */}
+        {/* Player field (bottom: same layout mirrored). Inline attacks
+            render directly under the Active card when it's the player's
+            turn and attacks are expanded. */}
         <div className="rounded-2xl border border-border bg-card p-4">
           <PlayerField
             playerState={playerState}
@@ -1079,6 +1209,31 @@ export default function Battle() {
             onInspect={setInspectCard}
             canActActive={canActActive}
             dropZoneIds={{ active: "player-active", bench: "player-bench" }}
+            onDiscardClick={(ps) => setDiscardPeek({ state: ps, label: "Your discard" })}
+            inlineActiveChildren={
+              playerActive && attacks.length > 0 && showInlineAttacks && !pendingAction ? (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  className="w-full max-w-[220px] space-y-1.5"
+                >
+                  <p className="text-[10px] font-body uppercase tracking-widest text-muted-foreground">
+                    Attacks {isMyTurn ? "" : "(not your turn)"}
+                  </p>
+                  {attacks.map((atk, idx) => (
+                    <AttackButton
+                      key={idx}
+                      attack={atk}
+                      index={idx}
+                      onAttack={handleAttack}
+                      disabled={!isMyTurn || Boolean(pendingAction)}
+                      canAfford={canAffordAttack(playerActive, atk)}
+                    />
+                  ))}
+                </motion.div>
+              ) : null
+            }
           />
         </div>
 
@@ -1118,15 +1273,17 @@ export default function Battle() {
                   />
                 </div>
 
-                {/* Attacks (only when an Active Pokémon is present) */}
-                {playerActive && attacks.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-[11px] uppercase tracking-widest text-muted-foreground font-body">Attacks</p>
-                    {attacks.map((atk, idx) => (
-                      <AttackButton key={idx} attack={atk} index={idx} onAttack={handleAttack}
-                        disabled={!isMyTurn || Boolean(pendingAction)} canAfford={canAffordAttack(playerActive, atk)} />
-                    ))}
-                  </div>
+                {/* Attacks now live inline on the Active card — see
+                    `inlineActiveChildren` on the player's PlayerField above.
+                    Tip shown when expansion is toggled off. */}
+                {playerActive && attacks.length > 0 && !showInlineAttacks && !pendingAction && (
+                  <button
+                    type="button"
+                    onClick={() => setShowInlineAttacks(true)}
+                    className="w-full text-[11px] font-body text-muted-foreground underline underline-offset-2 hover:text-primary"
+                  >
+                    Show attacks
+                  </button>
                 )}
 
                 {/* Turn controls */}
@@ -1182,7 +1339,171 @@ export default function Battle() {
       </div>
 
       <CardInspectorModal card={inspectCard} onClose={() => setInspectCard(null)} />
+      <DiscardPeekModal
+        peek={discardPeek}
+        onClose={() => setDiscardPeek(null)}
+        onInspect={(card) => { setDiscardPeek(null); setInspectCard(card); }}
+      />
+      <CoinTossOverlay
+        gameState={gameState}
+        playerSide={playerSide}
+        isAI={isAI}
+        onChoose={(choice) => applyAndSync(resolveCoinTossChoice(gameState, choice))}
+      />
     </div>
+  );
+}
+
+// Animated coin-toss overlay. Renders whenever the game state has an
+// outstanding `initialCoinToss.awaitingChoice`. For AI matches and for the
+// non-winning side of a multiplayer match the choice is automatic — in the
+// AI case we pick "first" (simplest) after the animation lands; in the
+// multiplayer case the non-winning side just watches.
+function CoinTossOverlay({ gameState, playerSide, isAI, onChoose }) {
+  const toss = gameState?.initialCoinToss;
+  const awaiting = Boolean(toss?.awaitingChoice);
+  const [landed, setLanded] = useState(false);
+  const autoFiredRef = useRef(false);
+
+  useEffect(() => {
+    if (!awaiting) { setLanded(false); autoFiredRef.current = false; return; }
+    const t = window.setTimeout(() => setLanded(true), 1200);
+    return () => window.clearTimeout(t);
+  }, [awaiting, toss?.flip]);
+
+  // AI auto-picks to keep the flow moving. Multiplayer: if we aren't the
+  // toss winner, do nothing — the winner's client drives the choice and
+  // will sync it to us.
+  useEffect(() => {
+    if (!awaiting || !landed || autoFiredRef.current) return;
+    const tossWinner = toss?.tossWinner;
+    if (isAI && tossWinner !== playerSide) {
+      autoFiredRef.current = true;
+      onChoose?.("first");
+    }
+  }, [awaiting, landed, isAI, toss, playerSide, onChoose]);
+
+  if (!awaiting || !toss) return null;
+
+  const winnerName = gameState[toss.tossWinner]?.name || toss.tossWinner;
+  const iAmWinner = toss.tossWinner === playerSide;
+  const canChoose = iAmWinner || (isAI && toss.tossWinner === playerSide);
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        key="coin-toss"
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[60] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4"
+      >
+        <div className="max-w-md w-full rounded-2xl border border-border bg-card p-6 space-y-5 text-center">
+          <p className="text-[11px] uppercase tracking-[0.3em] text-muted-foreground font-body">Coin Toss</p>
+          <div className="flex items-center justify-center py-4">
+            <motion.div
+              key={`coin-${toss.flip}`}
+              initial={{ rotateX: 0, scale: 0.7, y: -20 }}
+              animate={landed
+                ? { rotateX: toss.flip === "heads" ? 0 : 180, scale: 1, y: 0 }
+                : { rotateX: [0, 360, 720, 1080, 1440, 1800], scale: [0.7, 1.1, 1], y: [-20, 0, 0] }
+              }
+              transition={{ duration: landed ? 0.4 : 1.1, ease: "easeOut" }}
+              className="relative w-24 h-24 rounded-full border-4 border-yellow-400/70 bg-gradient-to-br from-yellow-400 via-amber-500 to-yellow-600 shadow-[0_0_40px_rgba(250,204,21,0.45)] flex items-center justify-center preserve-3d"
+              style={{ transformStyle: "preserve-3d" }}
+            >
+              <span className="font-display text-2xl font-black text-amber-900">
+                {landed ? (toss.flip === "heads" ? "H" : "T") : "?"}
+              </span>
+            </motion.div>
+          </div>
+          <AnimatePresence>
+            {landed && (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                className="space-y-3"
+              >
+                <p className="font-display text-lg font-bold">
+                  {toss.flip === "heads" ? "Heads" : "Tails"} — {winnerName} wins the toss!
+                </p>
+                {canChoose ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-body text-muted-foreground">
+                      {iAmWinner ? "You choose:" : "Choosing…"}
+                    </p>
+                    <div className="flex gap-2 justify-center">
+                      <Button size="sm" onClick={() => onChoose?.("first")} className="font-body">Go First</Button>
+                      <Button size="sm" variant="outline" onClick={() => onChoose?.("second")} className="font-body">Go Second</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs font-body text-muted-foreground">
+                    Waiting for {winnerName} to choose…
+                  </p>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+// Modal that lists every card in a discard pile, top-of-stack first. Click a
+// card to open the full inspector (via parent's onInspect).
+function DiscardPeekModal({ peek, onClose, onInspect }) {
+  if (!peek) return null;
+  const cards = [...(peek.state?.discard || [])].reverse();
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-2xl max-h-[80vh] overflow-y-auto rounded-2xl border border-border bg-card p-5 space-y-3"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] uppercase tracking-widest text-muted-foreground font-body">Discard Pile</p>
+              <h2 className="font-display text-xl font-bold">{peek.label} ({cards.length})</h2>
+            </div>
+            <Button size="sm" variant="ghost" onClick={onClose} className="font-body">Close</Button>
+          </div>
+          {cards.length === 0 ? (
+            <p className="text-sm font-body text-muted-foreground italic">Discard pile is empty.</p>
+          ) : (
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+              {cards.map((c, i) => {
+                const d = c?.def || c;
+                const style = getTypeStyle(d?.energy_type || (d?.types?.[0] || "").toLowerCase() || "colorless");
+                const img = d?.image_small || d?.imageSmall;
+                return (
+                  <button
+                    key={`${c?.instanceId || d?.id || "c"}-${i}`}
+                    type="button"
+                    onClick={() => onInspect?.(c)}
+                    className="rounded-lg border border-border bg-card overflow-hidden text-left hover:border-primary/60 hover:shadow-md transition-all"
+                  >
+                    <div className={`h-20 bg-gradient-to-br ${style.bg} flex items-center justify-center`}>
+                      {img
+                        ? <img src={img} alt={d?.name} className="h-full w-auto object-contain" loading="lazy" />
+                        : <TypeIcon type={d?.energy_type || (d?.types?.[0] || "colorless").toLowerCase()} size={28} />}
+                    </div>
+                    <div className="p-1.5">
+                      <p className="font-display text-[11px] font-bold leading-tight truncate">{d?.name || "Card"}</p>
+                      <p className="text-[9px] font-body text-muted-foreground capitalize">{d?.supertype || ""}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
   );
 }
 
