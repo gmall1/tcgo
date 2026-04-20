@@ -181,14 +181,14 @@ export default function Premium() {
             transition={{ delay: 0.2 }}
             className={`rounded-2xl border-2 p-5 space-y-4 transition-all ${
               premiumStatus.tier === "champion"
-                ? "border-purple-500 bg-purple-500/5"
-                : "border-border bg-card hover:border-purple-500/50"
+                ? "border-amber-500 bg-amber-500/5"
+                : "border-border bg-card hover:border-amber-500/50"
             }`}
           >
             <div className="flex items-start justify-between">
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <Sparkles className="w-5 h-5 text-purple-500" />
+                  <Sparkles className="w-5 h-5 text-amber-500" />
                   <p className="font-display text-xl font-bold">{PREMIUM_TIERS.champion.name}</p>
                 </div>
                 <p className="text-sm font-body text-muted-foreground">
@@ -196,7 +196,7 @@ export default function Premium() {
                 </p>
               </div>
               {premiumStatus.tier === "champion" && (
-                <Badge variant="secondary" className="font-body bg-purple-500/20 text-purple-500">
+                <Badge variant="secondary" className="font-body bg-amber-500/20 text-amber-400">
                   Active
                 </Badge>
               )}
@@ -205,13 +205,13 @@ export default function Premium() {
             <div className="space-y-2">
               {PREMIUM_TIERS.champion.perks.map((perk, idx) => (
                 <div key={idx} className="flex items-center gap-2 text-sm font-body">
-                  <Check className="w-4 h-4 text-purple-500 flex-shrink-0" />
+                  <Check className="w-4 h-4 text-amber-500 flex-shrink-0" />
                   {perk}
                 </div>
               ))}
             </div>
 
-            <div className="bg-purple-500/10 rounded-lg p-3">
+            <div className="bg-amber-500/10 rounded-lg p-3">
               <p className="text-xs font-body text-muted-foreground uppercase tracking-widest mb-2">
                 Monthly rewards
               </p>
@@ -235,7 +235,7 @@ export default function Premium() {
               <Button
                 onClick={() => handleDonation("champion")}
                 disabled={premiumStatus.tier === "champion"}
-                className="w-full font-body gap-2 bg-purple-600 hover:bg-purple-700"
+                className="w-full font-body gap-2 bg-amber-600 hover:bg-amber-700"
               >
                 <Sparkles className="w-4 h-4" />
                 {premiumStatus.tier === "champion" ? "You're a champion!" : "Become a champion"}

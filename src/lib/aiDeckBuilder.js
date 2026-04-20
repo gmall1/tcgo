@@ -6,16 +6,23 @@ import { getPokemonCards, getEnergyCards, buildStarterDeck, AI_DEFAULT_DECK_IDS 
 import { getCardById } from "./cardCatalog";
 
 export function buildAIDeck(personality = "balanced") {
-  // Primary path: curated AI deck of real pokemontcg.io ids (every card
-  // resolves in the registry + has real art). Fallback to the generic
-  // starter deck if an older catalog build ever strips those ids.
-  const hydrated = AI_DEFAULT_DECK_IDS.filter((id) => Boolean(getCardById(id)));
-  if (hydrated.length >= 20) return AI_DEFAULT_DECK_IDS.slice();
+  // Delegate to the per-personality builder so we always emit a 60-card
+  // deck whose ids are guaranteed to hydrate via the registry. The curated
+  // AI_DEFAULT_DECK_IDS is only used as an absolute-last-resort fallback
+  // below when every other path fails (e.g. the catalog is empty).
+  const byPersonality = {
+    aggressive: buildAggressiveDeck,
+    stall: buildStallDeck,
+    balanced: buildBalancedDeck,
+  };
+  const build = byPersonality[personality] || buildBalancedDeck;
+  const deck = build();
+  if (deck.length >= 40) return deck;
 
-  const deck = buildStarterDeck();
-  if (deck.length >= 20) return deck;
+  const starter = buildStarterDeck();
+  if (starter.length >= 40) return starter;
 
-  return buildBalancedDeck();
+  return HARDCODED_AI_DECK.slice();
 }
 
 export function buildBalancedDeck() {
