@@ -1,12 +1,10 @@
 import React, { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Edit2, Plus, Save, Trash2, Bot, Layers, Shuffle, Sparkles, Hammer, Music } from "lucide-react";
+import { ArrowLeft, Save, Bot, Shuffle, Sparkles, Hammer, Music, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
-import { SAMPLE_CARDS } from "@/lib/cardData";
 import { TypeIcon } from "@/lib/typeIcons";
 import { getTypeStyle, getPokemonCards, getEnergyCards, buildStarterDeck, getCardById } from "@/lib/cardCatalog";
 
@@ -70,147 +68,6 @@ function CardMiniTile({ card, onRemove }) {
           ×
         </button>
       )}
-    </div>
-  );
-}
-
-function SampleCardEditor({ cards: initialCards, onChange }) {
-  const [cards, setCards] = useState(initialCards);
-  const [editIdx, setEditIdx] = useState(null);
-  const [editCard, setEditCard] = useState(null);
-  const [newCard, setNewCard] = useState(null);
-  const [showAdd, setShowAdd] = useState(false);
-
-  const BLANK = {
-    name: "", card_type: "pokemon", hp: 100, energy_type: "fire",
-    stage: "basic", rarity: "common", set_name: "Custom",
-    attack1_name: "Tackle", attack1_damage: 30, attack1_cost: 1,
-    attack2_name: "", attack2_damage: 0, attack2_cost: 2,
-    description: "",
-  };
-
-  const save = (idx, data) => {
-    const next = [...cards];
-    next[idx] = { ...next[idx], ...data };
-    setCards(next);
-    onChange(next);
-    setEditIdx(null);
-  };
-
-  const remove = (idx) => {
-    const next = cards.filter((_, i) => i !== idx);
-    setCards(next);
-    onChange(next);
-  };
-
-  const addNew = (data) => {
-    const next = [...cards, { ...BLANK, ...data, id: `custom-${Date.now()}` }];
-    setCards(next);
-    onChange(next);
-    setShowAdd(false);
-    setNewCard(null);
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-body text-muted-foreground">{cards.length} sample cards</p>
-        <Button size="sm" variant="outline" onClick={() => { setNewCard({ ...BLANK }); setShowAdd(true); }} className="font-body gap-1.5">
-          <Plus className="w-3.5 h-3.5" /> Add card
-        </Button>
-      </div>
-
-      <div className="space-y-2 max-h-96 overflow-y-auto">
-        {cards.map((card, idx) => (
-          <div key={idx}>
-            <div className="flex items-center gap-2 p-2 rounded-xl border border-border bg-background hover:bg-secondary/30 transition-colors">
-              <div className={`w-8 h-11 rounded-lg bg-gradient-to-br ${getTypeStyle(card.energy_type || "colorless").bg} flex items-center justify-center flex-shrink-0 text-sm`}>
-                
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-body font-semibold text-sm truncate">{card.name}</p>
-                <p className="text-[11px] text-muted-foreground font-body capitalize">{card.card_type} · {card.energy_type || "—"} · {card.stage || "—"}</p>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <button onClick={() => { setEditIdx(idx); setEditCard({ ...card }); }}
-                  className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground">
-                  <Edit2 className="w-3.5 h-3.5" />
-                </button>
-                <button onClick={() => remove(idx)}
-                  className="p-1.5 rounded-lg hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-
-            <AnimatePresence>
-              {editIdx === idx && editCard && (
-                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                  className="overflow-hidden">
-                  <CardEditForm card={editCard} onChange={setEditCard} onSave={() => save(idx, editCard)} onCancel={() => setEditIdx(null)} />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        ))}
-      </div>
-
-      <AnimatePresence>
-        {showAdd && newCard && (
-          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
-            <CardEditForm card={newCard} onChange={setNewCard} onSave={() => addNew(newCard)} onCancel={() => { setShowAdd(false); setNewCard(null); }} isNew />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function CardEditForm({ card, onChange, onSave, onCancel, isNew = false }) {
-  const f = (key) => (e) => onChange({ ...card, [key]: e.target.value });
-  const fn = (key) => (e) => onChange({ ...card, [key]: Number(e.target.value) });
-  const inputCls = "font-body text-xs h-7 px-2";
-
-  return (
-    <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 mt-1 space-y-3">
-      <div className="grid grid-cols-2 gap-2">
-        <div><p className="text-[10px] text-muted-foreground mb-1">Name</p><Input value={card.name} onChange={f("name")} className={inputCls} /></div>
-        <div><p className="text-[10px] text-muted-foreground mb-1">Type</p>
-          <select value={card.card_type} onChange={f("card_type")} className="w-full text-xs h-7 px-2 rounded-md border border-border bg-background font-body">
-            <option value="pokemon">Pokemon</option><option value="trainer">Trainer</option><option value="energy">Energy</option>
-          </select>
-        </div>
-        <div><p className="text-[10px] text-muted-foreground mb-1">Energy type</p>
-          <select value={card.energy_type || ""} onChange={f("energy_type")} className="w-full text-xs h-7 px-2 rounded-md border border-border bg-background font-body">
-            {["fire","water","grass","electric","psychic","fighting","dark","steel","dragon","fairy","colorless"].map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-        </div>
-        <div><p className="text-[10px] text-muted-foreground mb-1">Stage</p>
-          <select value={card.stage || "basic"} onChange={f("stage")} className="w-full text-xs h-7 px-2 rounded-md border border-border bg-background font-body">
-            {["basic","stage1","stage2","ex","vmax","vstar","gx"].map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-        <div><p className="text-[10px] text-muted-foreground mb-1">HP</p><Input type="number" value={card.hp || 100} onChange={fn("hp")} className={inputCls} /></div>
-        <div><p className="text-[10px] text-muted-foreground mb-1">Rarity</p>
-          <select value={card.rarity || "common"} onChange={f("rarity")} className="w-full text-xs h-7 px-2 rounded-md border border-border bg-background font-body">
-            {["common","uncommon","rare","holo_rare","ultra_rare","secret_rare","full_art"].map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-        </div>
-        <div><p className="text-[10px] text-muted-foreground mb-1">Attack 1</p><Input value={card.attack1_name || ""} onChange={f("attack1_name")} className={inputCls} placeholder="Name" /></div>
-        <div><p className="text-[10px] text-muted-foreground mb-1">Attack 1 dmg</p><Input type="number" value={card.attack1_damage || 0} onChange={fn("attack1_damage")} className={inputCls} /></div>
-        <div><p className="text-[10px] text-muted-foreground mb-1">Attack 2</p><Input value={card.attack2_name || ""} onChange={f("attack2_name")} className={inputCls} placeholder="Name (optional)" /></div>
-        <div><p className="text-[10px] text-muted-foreground mb-1">Attack 2 dmg</p><Input type="number" value={card.attack2_damage || 0} onChange={fn("attack2_damage")} className={inputCls} /></div>
-        <div className="col-span-2"><p className="text-[10px] text-muted-foreground mb-1">Set name</p><Input value={card.set_name || ""} onChange={f("set_name")} className={inputCls} /></div>
-        {card.card_type !== "pokemon" && (
-          <div className="col-span-2"><p className="text-[10px] text-muted-foreground mb-1">Description</p>
-            <textarea value={card.description || ""} onChange={f("description")} rows={2} className="w-full text-xs px-2 py-1.5 rounded-md border border-border bg-background font-body resize-none" />
-          </div>
-        )}
-      </div>
-      <div className="flex gap-2">
-        <Button size="sm" onClick={onSave} className="font-body gap-1 h-7 text-xs">{isNew ? <><Plus className="w-3 h-3"/>Add</> : <><Save className="w-3 h-3"/>Save</>}</Button>
-        <Button size="sm" variant="outline" onClick={onCancel} className="font-body h-7 text-xs">Cancel</Button>
-      </div>
     </div>
   );
 }
@@ -353,11 +210,7 @@ function AIDeckEditor({ deck, onSave }) {
 export default function Admin() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [tab, setTab] = useState("sample");
-  const [sampleCards, setSampleCards] = useState(() => {
-    const cfg = readAdminConfig();
-    return cfg?.sampleCards || SAMPLE_CARDS;
-  });
+  const [tab, setTab] = useState("ai");
   const [aiDecks, setAiDecks] = useState(() => {
     const cfg = readAdminConfig();
     return cfg?.aiDecks || DEFAULT_AI_DECKS;
@@ -365,7 +218,7 @@ export default function Admin() {
   const [saved, setSaved] = useState(false);
 
   const saveAll = () => {
-    writeAdminConfig({ sampleCards, aiDecks, savedAt: Date.now() });
+    writeAdminConfig({ aiDecks, savedAt: Date.now() });
     setSaved(true);
     toast({ title: "Admin config saved", description: "Changes will apply on next app reload." });
     setTimeout(() => setSaved(false), 2000);
@@ -376,7 +229,6 @@ export default function Admin() {
   };
 
   const TABS = [
-    { id: "sample", label: "Sample Cards", icon: <Layers className="w-4 h-4" /> },
     { id: "ai", label: "AI Decks", icon: <Bot className="w-4 h-4" /> },
   ];
 
@@ -452,20 +304,6 @@ export default function Admin() {
             </Link>
           </div>
         </div>
-
-        {/* Sample cards tab */}
-        {tab === "sample" && (
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-border bg-card p-4">
-              <p className="font-display font-bold text-base mb-1">Premade card catalog</p>
-              <p className="text-sm font-body text-muted-foreground mb-4">
-                These cards appear in the app when the Pokémon TCG API is unavailable (offline / rate limited).
-                Edits here are saved to localStorage and override the default cardData.js values.
-              </p>
-              <SampleCardEditor cards={sampleCards} onChange={setSampleCards} />
-            </div>
-          </div>
-        )}
 
         {/* AI decks tab */}
         {tab === "ai" && (

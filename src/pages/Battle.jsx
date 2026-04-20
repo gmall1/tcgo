@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import db from "@/lib/localDb";
 import {
   buildStarterDeck,
+  AI_DEFAULT_DECK_IDS,
   getCardById,
   getPokemonCards,
   getTypeStyle,
@@ -714,7 +715,7 @@ export default function Battle() {
           if (!active) return;
           const [p1Def, p2Def] = await Promise.all([
             buildPlayerDef(localUser.full_name || "Trainer", buildStarterDeck()),
-            buildPlayerDef(AI_NAME, buildStarterDeck().slice().reverse()),
+            buildPlayerDef(AI_NAME, AI_DEFAULT_DECK_IDS.slice()),
           ]);
           const gs = createGameState(p1Def, p2Def, mode);
           if (!active) return;
