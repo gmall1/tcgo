@@ -48,6 +48,11 @@ export function createPlayCard(cardDef, instanceId) {
     attackedThisTurn: false,
     abilityUsedThisTurn: false,
     retreatedThisTurn: false,
+    // Classic-era effect flags. Expire in endTurn() once the
+    // guard turn has passed.
+    preventEffectsUntilTurn: 0,   // Agility-style: ignore damage + effects from opponent attacks
+    cantAttackUntilTurn: 0,       // Lock-style: opponent can't attack next turn
+    damageBonusNextAttack: 0,     // PlusPower, Defender, etc.
   };
 }
 
@@ -106,7 +111,18 @@ export function createGameState(p1Def, p2Def, mode = "unlimited") {
     log: [`${firstPlayer === "player1" ? p1Def.name : p2Def.name} goes first!`],
     coinFlipResults: [],
     lastAction: null,
+    // Monotonically-increasing version used by multiplayerSync to pick the
+    // authoritative snapshot when two clients diverge mid-turn.
+    stateVersion: 0,
   };
+}
+
+// Every public action routes through this so network clients can use
+// stateVersion to adopt the freshest authoritative snapshot without needing
+// to diff the full state tree.
+export function bumpVersion(gs) {
+  if (!gs) return gs;
+  return { ...gs, stateVersion: (gs.stateVersion || 0) + 1 };
 }
 
 // ── Getters ────────────────────────────────────────────────
@@ -509,6 +525,11 @@ export function performAttack(gs, attackIndex) {
   if (!defender) return { ...gs, _error: "Opponent has no active Pokémon" };
   if (attacker.specialCondition === SPECIAL_CONDITIONS.PARALYZED) return { ...gs, _error: "Paralyzed — can't attack" };
   if (attacker.specialCondition === SPECIAL_CONDITIONS.ASLEEP) return { ...gs, _error: "Asleep — can't attack" };
+  // Lock-style effects from the opponent's previous attack (e.g. "The Defending
+  // Pokémon can't attack during your opponent's next turn").
+  if ((attacker.cantAttackUntilTurn || 0) >= gs.turn) {
+    return { ...gs, _error: `${attacker.def.name} can't attack this turn` };
+  }
 
   const attack = attacker.def.attacks?.[attackIndex];
   if (!attack) return { ...gs, _error: "Attack not found" };
@@ -547,19 +568,49 @@ export function performAttack(gs, attackIndex) {
 
   // Calculate damage
   let baseDmg = attack.damageValue || 0;
+  // PlusPower / Defender-style stacked modifier applied by trainers earlier this turn.
+  const preAttackBonus = attacker.damageBonusNextAttack || 0;
+  baseDmg += preAttackBonus;
   let finalDmg = calcDamage(attacker, defender, baseDmg);
 
-  newLog.push(`${attacker.def.name} used ${attack.name}${finalDmg > 0 ? ` for ${finalDmg} damage` : ""}!`);
+  // Agility / "prevent all effects of attacks" flag on the defender — drops
+  // damage and blocks status riders for the current turn.
+  const defenderProtected = (defender.preventEffectsUntilTurn || 0) >= gs.turn;
+  if (defenderProtected) {
+    newLog.push(`${attacker.def.name} used ${attack.name}, but ${defender.def.name} is protected this turn!`);
+    finalDmg = 0;
+  } else {
+    newLog.push(`${attacker.def.name} used ${attack.name}${finalDmg > 0 ? ` for ${finalDmg} damage` : ""}!`);
+  }
 
-  // Apply attack text effects (skeleton — expand per card)
-  const effects = resolveAttackText(attack, attacker, defender, finalDmg, ps, opp, newLog);
-  finalDmg = effects.damage;
+  // Apply attack text effects (skeleton — expand per card). When the defender
+  // is protected we still run the resolver so self-targeting side effects
+  // (discard energy, heal self, draw) happen, but we force final damage back
+  // to 0 afterward.
+  const effects = resolveAttackText(attack, attacker, defender, finalDmg, ps, opp, newLog, gs);
+  finalDmg = defenderProtected ? 0 : effects.damage;
   ps = effects.ps;
   opp = effects.opp;
   newLog.push(...effects.extraLog);
 
+  // Consume the one-shot damage bonus regardless of outcome.
+  if (preAttackBonus > 0 && ps.activePokemon) {
+    ps.activePokemon = { ...ps.activePokemon, damageBonusNextAttack: 0 };
+  }
+
+  // Defender trainer / other incoming damage reducers. Consumed on hit.
+  const reduction = defender.damageReduction || 0;
+  if (reduction > 0 && finalDmg > 0) {
+    const reduced = Math.max(0, finalDmg - reduction);
+    if (reduced !== finalDmg) {
+      newLog.push(`Damage reduced by ${finalDmg - reduced} (Defender).`);
+      finalDmg = reduced;
+    }
+  }
+
   // Apply damage
-  let newDefender = { ...defender, damage: defender.damage + finalDmg };
+  let newDefender = { ...defender, damage: defender.damage + finalDmg, damageReduction: 0 };
+  if (defenderProtected) newDefender = { ...defender };
   opp.activePokemon = newDefender;
 
   // ── Custom mechanic hook ─────────────────────────────────
@@ -637,13 +688,101 @@ function getPrizesForKO(card) {
 }
 
 // ── Resolve attack text effects (skeleton per archetype) ──
-function resolveAttackText(attack, attacker, defender, damage, ps, opp, log) {
+// `gs` is optional and only used for turn-scoped flags (Agility, lock, etc).
+function resolveAttackText(attack, attacker, defender, damage, ps, opp, log, gs) {
   const text = (attack.text || "").toLowerCase();
   const extraLog = [];
+  const currentTurn = gs?.turn || 0;
+
+  // ── Flip-until-tails damage scaling ─────────────────────────
+  // "Flip a coin until you get tails. This attack does N damage times the
+  // number of heads." (e.g. Jolteon's Thunder Jolt, many Electric attacks)
+  if (text.includes("flip a coin until you get tails") || text.includes("flip coins until you get tails")) {
+    const perHeadsMatch = text.match(/(\d+)\s*damage\s*(?:times|for each|per)?\s*(?:the\s*)?(?:number of\s*)?heads?/);
+    const perHeads = perHeadsMatch ? parseInt(perHeadsMatch[1], 10) : 20;
+    let heads = 0;
+    // Safety cap to avoid pathological infinite loops in tests.
+    for (let i = 0; i < 16; i++) {
+      if (coinFlip() === "tails") break;
+      heads++;
+    }
+    const bonus = heads * perHeads;
+    damage += bonus;
+    extraLog.push(`Flipped ${heads} heads before tails — +${bonus} damage.`);
+  }
+
+  // "This attack does N damage times the number of Energy attached..."
+  else if (/damage\s*(?:times|for each|per)\s*(?:the\s*)?(?:number\s*of\s*)?energy/.test(text)) {
+    const perMatch = text.match(/(\d+)\s*damage\s*(?:times|for each|per)/);
+    const per = perMatch ? parseInt(perMatch[1], 10) : 10;
+    const source = text.includes("defending") ? defender : attacker;
+    const bonus = (source.energyAttached?.length || 0) * per;
+    damage += bonus;
+    extraLog.push(`+${bonus} from energy count (${source.def.name}).`);
+  }
+
+  // "...does N more damage for each damage counter on the Defending Pokémon."
+  else if (/damage counters? on (?:the )?defending/.test(text) || /defending.*damage counters?/.test(text)) {
+    const perMatch = text.match(/(\d+)\s*(?:more\s*)?damage(?:\s*for each|\s*times|\s*per)/);
+    const per = perMatch ? parseInt(perMatch[1], 10) : 10;
+    const counters = Math.floor((defender.damage || 0) / 10);
+    const bonus = counters * per;
+    damage += bonus;
+    extraLog.push(`+${bonus} from opponent damage counters (${counters}×${per}).`);
+  }
+
+  // "If the Defending Pokémon has any damage counters on it, this attack does N more damage."
+  else if (/if (?:the )?defending.*damage counters?.*(?:this attack )?does/.test(text)) {
+    const moreMatch = text.match(/does\s*(\d+)\s*more/);
+    const more = moreMatch ? parseInt(moreMatch[1], 10) : 20;
+    if ((defender.damage || 0) > 0) {
+      damage += more;
+      extraLog.push(`+${more} because defender is damaged.`);
+    }
+  }
+
+  // Agility-style: "During your opponent's next turn, prevent all effects of
+  // attacks, including damage, done to [this Pokémon]."
+  if (/prevent all effects of attacks.*done to/.test(text) || /prevent all damage done to/.test(text)) {
+    // Many Agility-style attacks require a heads on a coin flip — if the text
+    // mentions "flip a coin" we already resolved it above; honor the most
+    // recent flip.
+    const needsHeads = text.includes("flip a coin");
+    const flipOk = needsHeads ? (extraLog.join(" ").includes("heads") || coinFlip() === "heads") : true;
+    if (flipOk && ps.activePokemon) {
+      ps.activePokemon = {
+        ...ps.activePokemon,
+        preventEffectsUntilTurn: currentTurn + 1,
+      };
+      extraLog.push(`${attacker.def.name} is protected until its next turn.`);
+    } else if (needsHeads) {
+      extraLog.push(`${attacker.def.name}'s protection failed.`);
+    }
+  }
+
+  // Lock-style: "The Defending Pokémon can't attack during your opponent's next turn."
+  if (/defending pok(?:é|e)mon can'?t attack/.test(text)) {
+    if (opp.activePokemon) {
+      opp.activePokemon = {
+        ...opp.activePokemon,
+        cantAttackUntilTurn: currentTurn + 1,
+      };
+      extraLog.push(`${defender.def.name} can't attack next turn.`);
+    }
+  }
+
+  // Bench damage — spread or single
+  // "...does N damage to each of your opponent's Benched Pokémon."
+  const benchEachMatch = text.match(/(\d+)\s*damage\s*to\s*each\s*of\s*your\s*opponent'?s\s*benched/);
+  if (benchEachMatch) {
+    const n = parseInt(benchEachMatch[1], 10);
+    opp.bench = opp.bench.map(b => ({ ...b, damage: (b.damage || 0) + n }));
+    extraLog.push(`Bench damage: ${n} to each of ${opp.name}'s benched Pokémon.`);
+  }
 
   // Coin flip effects
-  if (text.includes("flip a coin") || text.includes("flip 2 coins") || text.includes("flip 3 coins")) {
-    const coinCount = text.includes("flip 3") ? 3 : text.includes("flip 2") ? 2 : 1;
+  if (text.includes("flip a coin") || text.includes("flip 2 coins") || text.includes("flip 3 coins") || text.includes("flip 4 coins")) {
+    const coinCount = text.includes("flip 4") ? 4 : text.includes("flip 3") ? 3 : text.includes("flip 2") ? 2 : 1;
     const flips = flipCoins(coinCount);
     extraLog.push(`Coin flip(s): ${flips.join(", ")}`);
     const heads = flips.filter(f => f === "heads").length;
@@ -709,18 +848,84 @@ function resolveAttackText(attack, attacker, defender, damage, ps, opp, log) {
   }
 
   // Discard energy from attacker
-  if (text.includes("discard all") && text.includes("energy")) {
+  if (text.includes("discard all") && text.includes("energy") && text.includes("this pok")) {
     attacker.energyAttached = [];
     extraLog.push(`${attacker.def.name} discarded all energy.`);
+  } else if (text.includes("discard") && /\d+\s*energy/.test(text) && text.includes("this pok")) {
+    const m = text.match(/discard\s*(\d+)\s*(?:[a-z]+\s*)?energy/);
+    const n = m ? parseInt(m[1], 10) : 1;
+    attacker.energyAttached = attacker.energyAttached.slice(0, Math.max(0, attacker.energyAttached.length - n));
+    extraLog.push(`${attacker.def.name} discarded ${n} energy.`);
   }
 
-  // Draw cards
-  if (text.includes("draw") && text.includes("card")) {
-    const drawMatch = text.match(/draw (\d+)/);
+  // Discard energy from the Defending Pokémon
+  if (/discard.*energy.*(?:defending|opponent'?s active)/.test(text) ||
+      /flip a coin.*if heads.*discard.*energy.*defending/.test(text)) {
+    let shouldDiscard = true;
+    if (text.includes("flip a coin") && text.includes("if heads")) {
+      shouldDiscard = extraLog.join(" ").toLowerCase().includes("heads");
+    }
+    if (shouldDiscard && opp.activePokemon?.energyAttached?.length) {
+      const numMatch = text.match(/discard\s*(\d+)\s*energy/);
+      const numToDiscard = numMatch ? parseInt(numMatch[1], 10) : 1;
+      const kept = opp.activePokemon.energyAttached.slice(0, Math.max(0, opp.activePokemon.energyAttached.length - numToDiscard));
+      const discarded = opp.activePokemon.energyAttached.slice(kept.length);
+      opp.activePokemon = { ...opp.activePokemon, energyAttached: kept };
+      opp.discard = [...opp.discard, ...discarded];
+      extraLog.push(`Discarded ${discarded.length} energy from ${defender.def.name}.`);
+    }
+  }
+
+  // "Switch [this Pokémon] with one of your Benched Pokémon."
+  // Resolved without requiring a target picker — swap with the highest-HP
+  // benched Pokémon, which is usually what the user wants in a skirmish.
+  if (/switch (?:this pok(?:é|e)mon|the attacking pok(?:é|e)mon) with one of your benched/.test(text)) {
+    if (ps.bench.length > 0 && ps.activePokemon) {
+      const bestBenchIdx = ps.bench
+        .map((c, i) => ({ i, remaining: (c.def?.hp || 0) - (c.damage || 0) }))
+        .sort((a, b) => b.remaining - a.remaining)[0]?.i ?? 0;
+      const swap = ps.bench[bestBenchIdx];
+      const newBench = ps.bench.filter((_, i) => i !== bestBenchIdx);
+      newBench.push({ ...ps.activePokemon, specialCondition: null });
+      ps.bench = newBench;
+      ps.activePokemon = { ...swap, specialCondition: null };
+      extraLog.push(`${attacker.def.name} switched out for ${swap.def.name}.`);
+    }
+  }
+
+  // "Your opponent reveals their hand" / "Look at your opponent's hand."
+  if (/look at your opponent'?s hand|opponent reveals their hand/.test(text)) {
+    extraLog.push(`${ps.name} looked at ${opp.name}'s hand (${opp.hand.length} cards).`);
+  }
+
+  // "Discard the top N cards of your opponent's deck."
+  const millMatch = text.match(/discard\s*(?:the\s*top\s*)?(\d+)\s*cards?\s*(?:of|from)\s*your\s*opponent'?s\s*deck/);
+  if (millMatch) {
+    const n = parseInt(millMatch[1], 10);
+    const moved = opp.deck.slice(0, n);
+    opp.deck = opp.deck.slice(n);
+    opp.discard = [...opp.discard, ...moved];
+    extraLog.push(`Discarded top ${moved.length} of ${opp.name}'s deck.`);
+  }
+
+  // Draw cards (attacker's draw — self-targeted)
+  if ((text.includes("draw") && text.includes("card")) && !text.includes("opponent")) {
+    const drawMatch = text.match(/draw\s*(\d+)/);
     if (drawMatch) {
-      const n = parseInt(drawMatch[1]);
+      const n = parseInt(drawMatch[1], 10);
       ps = drawCards(ps, n);
       extraLog.push(`${ps.name} drew ${n} card(s).`);
+    }
+  }
+
+  // Heal self — accept multiple phrasings
+  if ((text.includes("heal") && (text.includes("from this pok") || text.includes("from the attacking"))) ||
+      /remove\s*\d+\s*damage\s*counters?\s*from\s*this/.test(text)) {
+    const healMatch = text.match(/heal\s*(\d+)/) || text.match(/remove\s*(\d+)\s*damage/);
+    if (healMatch) {
+      const n = parseInt(healMatch[1], 10) * (text.includes("damage counters") ? 10 : 1);
+      attacker.damage = Math.max(0, attacker.damage - n);
+      extraLog.push(`${attacker.def.name} healed ${n} damage.`);
     }
   }
 
@@ -761,8 +966,143 @@ function resolveTrainer(card, ps, gs, targets, log) {
   const text = (card.def.rules?.[0] || "").toLowerCase();
   const extraLog = [...log];
 
+  // Bill — draw 2 cards (classic Base Set trainer).
+  if (/^bill\b/.test(name) || (name.includes("bill") && !name.includes("billy"))) {
+    ps = drawCards(ps, 2);
+    extraLog.push(`${ps.name} drew 2 cards.`);
+  }
+
+  // Computer Search — discard 2 to fetch any card from deck.
+  else if (name.includes("computer search")) {
+    const discarded = ps.hand.slice(0, 2);
+    ps.discard = [...ps.discard, ...discarded];
+    ps.hand = ps.hand.slice(2);
+    if (targets.searchedCardId) {
+      const found = ps.deck.find(c => c.def.id === targets.searchedCardId);
+      if (found) {
+        ps.deck = shuffle(ps.deck.filter(c => c.instanceId !== found.instanceId));
+        ps.hand = [...ps.hand, found];
+        extraLog.push(`${ps.name} fetched ${found.def.name} with Computer Search.`);
+      }
+    } else {
+      extraLog.push(`${ps.name} discarded 2 for Computer Search.`);
+    }
+  }
+
+  // Super Potion — heal 40 damage but discard 1 energy from the target.
+  else if (name.includes("super potion")) {
+    if (targets.targetInstanceId) {
+      const applyTo = (poke) => {
+        const discardedEnergy = poke.energyAttached.slice(-1);
+        return {
+          ...poke,
+          damage: Math.max(0, (poke.damage || 0) - 40),
+          energyAttached: poke.energyAttached.slice(0, -1),
+          _discarded: discardedEnergy,
+        };
+      };
+      let discardedEnergy = [];
+      if (ps.activePokemon?.instanceId === targets.targetInstanceId && ps.activePokemon.energyAttached.length > 0) {
+        const nxt = applyTo(ps.activePokemon);
+        discardedEnergy = nxt._discarded; delete nxt._discarded;
+        ps.activePokemon = nxt;
+      } else {
+        const idx = ps.bench.findIndex(c => c.instanceId === targets.targetInstanceId);
+        if (idx !== -1 && ps.bench[idx].energyAttached.length > 0) {
+          const nxt = applyTo(ps.bench[idx]);
+          discardedEnergy = nxt._discarded; delete nxt._discarded;
+          const nb = [...ps.bench]; nb[idx] = nxt; ps.bench = nb;
+        }
+      }
+      ps.discard = [...ps.discard, ...discardedEnergy];
+      extraLog.push(`${ps.name} healed 40 damage (Super Potion).`);
+    }
+  }
+
+  // Full Heal — remove all special conditions from your Active Pokémon.
+  else if (name.includes("full heal")) {
+    if (ps.activePokemon) {
+      ps.activePokemon = { ...ps.activePokemon, specialCondition: null, poisonCounters: 1 };
+      extraLog.push(`${ps.name} used Full Heal on ${ps.activePokemon.def.name}.`);
+    }
+  }
+
+  // Pokémon Center — heal all damage from your Pokémon but discard all energy on them.
+  else if (name.includes("pokémon center") || name.includes("pokemon center")) {
+    const clear = (poke) => ({
+      ...poke,
+      damage: 0,
+      energyAttached: [],
+    });
+    const discardedEnergy = [
+      ...(ps.activePokemon?.energyAttached || []),
+      ...ps.bench.flatMap(b => b.energyAttached || []),
+    ];
+    if (ps.activePokemon) ps.activePokemon = clear(ps.activePokemon);
+    ps.bench = ps.bench.map(clear);
+    ps.discard = [...ps.discard, ...discardedEnergy];
+    extraLog.push(`${ps.name} used Pokémon Center — all damage healed, ${discardedEnergy.length} energy discarded.`);
+  }
+
+  // Scoop Up — return Active Pokémon to hand (with evolution stripped).
+  else if (name.includes("scoop up")) {
+    if (ps.activePokemon) {
+      const active = ps.activePokemon;
+      const baseCard = { ...active, damage: 0, energyAttached: [], specialCondition: null, isEvolved: false };
+      ps.discard = [...ps.discard, ...(active.energyAttached || [])];
+      ps.hand = [...ps.hand, baseCard];
+      ps.activePokemon = null;
+      extraLog.push(`${ps.name} scooped up ${active.def.name}.`);
+    }
+  }
+
+  // PlusPower — +10 damage to this turn's attack.
+  else if (name.includes("pluspower")) {
+    if (ps.activePokemon) {
+      ps.activePokemon = {
+        ...ps.activePokemon,
+        damageBonusNextAttack: (ps.activePokemon.damageBonusNextAttack || 0) + 10,
+      };
+      extraLog.push(`${ps.activePokemon.def.name} gains +10 damage this turn.`);
+    }
+  }
+
+  // Defender — prevents 20 damage done to the target next time it's attacked.
+  else if (name.includes("defender")) {
+    const attach = (poke) => ({
+      ...poke,
+      damageReduction: (poke.damageReduction || 0) + 20,
+    });
+    if (targets.targetInstanceId && ps.activePokemon?.instanceId === targets.targetInstanceId) {
+      ps.activePokemon = attach(ps.activePokemon);
+    } else if (targets.targetInstanceId) {
+      const idx = ps.bench.findIndex(c => c.instanceId === targets.targetInstanceId);
+      if (idx !== -1) {
+        const nb = [...ps.bench]; nb[idx] = attach(nb[idx]); ps.bench = nb;
+      }
+    } else if (ps.activePokemon) {
+      ps.activePokemon = attach(ps.activePokemon);
+    }
+    extraLog.push(`${ps.name} played Defender (-20 damage next hit).`);
+  }
+
+  // Item Finder — put a trainer card from discard back into your hand (costs 2 discards).
+  else if (name.includes("item finder")) {
+    const discarded = ps.hand.slice(0, 2);
+    ps.discard = [...ps.discard, ...discarded];
+    ps.hand = ps.hand.slice(2);
+    const fetched = targets.searchedCardId
+      ? ps.discard.find(c => c.def.id === targets.searchedCardId && c.def.supertype === "Trainer")
+      : [...ps.discard].reverse().find(c => c.def.supertype === "Trainer");
+    if (fetched) {
+      ps.discard = ps.discard.filter(c => c.instanceId !== fetched.instanceId);
+      ps.hand = [...ps.hand, fetched];
+      extraLog.push(`${ps.name} recovered ${fetched.def.name} from discard.`);
+    }
+  }
+
   // Professor's Research / Professor's Letter / Hop etc. — draw 7
-  if (name.includes("professor") || text.includes("discard your hand") && text.includes("draw 7")) {
+  else if (name.includes("professor") || (text.includes("discard your hand") && text.includes("draw 7"))) {
     ps.discard = [...ps.discard, ...ps.hand];
     ps.hand = [];
     ps = drawCards(ps, 7);
