@@ -81,16 +81,32 @@ export function createPlayerState(playerDef) {
   const prizeCards = remaining.slice(0, 6);
   const drawPile = remaining.slice(6);
 
+  // Auto-set up the first Basic from the starting hand as the Active Pokémon
+  // so the game can start without a dedicated setup phase. (Classic TCG would
+  // let the player choose; we pick the first Basic in hand order, which is
+  // deterministic and never mulligans.) Any additional Basics can be played
+  // to the bench by the player on their first turn.
+  let activePokemon = null;
+  let workingHand = [...hand];
+  const firstBasicIdx = workingHand.findIndex(c => c.def.supertype === "Pokémon" && c.def.stage === "basic");
+  if (firstBasicIdx !== -1) {
+    activePokemon = { ...workingHand[firstBasicIdx], turnPlayed: 0 };
+    workingHand = [
+      ...workingHand.slice(0, firstBasicIdx),
+      ...workingHand.slice(firstBasicIdx + 1),
+    ];
+  }
+
   return {
     id: playerDef.id,
     name: playerDef.name,
-    hand,
+    hand: workingHand,
     deck: drawPile,
     discard: [],
-    prizeCards,          // face-down prize pile (6 cards)
-    activePokemon: null, // single playCard or null
-    bench: [],           // up to 5 playCards
-    stadium: null,       // active stadium card
+    prizeCards,              // face-down prize pile (6 cards)
+    activePokemon,           // auto-placed Basic from hand, or null if none
+    bench: [],               // up to 5 playCards
+    stadium: null,           // active stadium card
     supporterPlayedThisTurn: false,
     energyAttachedThisTurn: false,
     mulligans,
@@ -103,7 +119,7 @@ export function createGameState(p1Def, p2Def, mode = "unlimited") {
   return {
     mode,
     turn: 1,
-    phase: "setup",       // setup | p1_setup | p2_setup | main | attack | end | finished
+    phase: "main",        // setup | main | attack | end | finished (setup is auto-resolved in createPlayerState)
     activePlayer: firstPlayer,
     player1: createPlayerState({ ...p1Def, id: "player1" }),
     player2: createPlayerState({ ...p2Def, id: "player2" }),
