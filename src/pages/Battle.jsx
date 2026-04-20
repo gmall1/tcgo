@@ -36,6 +36,7 @@ import {
   syncGameState,
 } from "@/lib/multiplayerSync";
 import { soundManager } from "@/lib/soundManager";
+import CardFlowBackground from "@/components/home/CardFlowBackground";
 
 const AI_NAME = "Trainer Sparky";
 const AI_DELAY_MS = 1400;
@@ -188,11 +189,11 @@ function PokemonCard({ playCard, isActivePlayer, isOpponent, lastDamage, onInspe
       <motion.div
         animate={lastDamage ? { x: [-5, 5, -3, 3, 0] } : canAct ? { boxShadow: ["0 0 0px rgba(250,204,21,0)", "0 0 16px rgba(250,204,21,0.55)", "0 0 0px rgba(250,204,21,0)"] } : {}}
         transition={lastDamage ? { duration: 0.3 } : { duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
-        className={`rounded-2xl border overflow-hidden ${canAct ? "border-yellow-400/80 shadow-md shadow-yellow-500/30" : isActivePlayer ? "border-primary shadow-md shadow-primary/20" : "border-border"} bg-card`}
+        className={`rounded-2xl border overflow-hidden ${canAct ? "border-yellow-400/80 shadow-md shadow-yellow-500/30" : isActivePlayer ? "border-primary shadow-md shadow-primary/20" : "border-border/60"} bg-black/30 backdrop-blur-sm`}
       >
-        <div className={`relative h-32 bg-gradient-to-br ${style.bg} flex items-center justify-center overflow-hidden`}>
+        <div className="relative aspect-[2.5/3.5] w-full flex items-center justify-center overflow-hidden">
           {imageUrl
-            ? <img src={imageUrl} alt={def?.name} className="h-full w-auto object-contain drop-shadow-xl" loading="lazy" />
+            ? <img src={imageUrl} alt={def?.name} className="w-full h-full object-cover" loading="lazy" />
             : <TypeIcon type={def?.energy_type || (def?.types?.[0] || "colorless").toLowerCase()} size={52} />
           }
           {(playCard?.energyAttached?.length > 0) && (
@@ -208,10 +209,10 @@ function PokemonCard({ playCard, isActivePlayer, isOpponent, lastDamage, onInspe
             </div>
           )}
         </div>
-        <div className="px-3 py-2 space-y-1.5">
+        <div className="px-3 py-2 space-y-1.5 bg-black/50 backdrop-blur-md">
           <div className="flex items-center justify-between gap-2">
-            <p className="font-display font-bold text-sm leading-tight truncate">{def?.name || "Unknown"}</p>
-            <span className="font-body text-xs text-muted-foreground whitespace-nowrap">{remaining}/{hp} HP</span>
+            <p className="font-display font-bold text-sm leading-tight truncate text-white">{def?.name || "Unknown"}</p>
+            <span className="font-body text-xs text-white/70 whitespace-nowrap">{remaining}/{hp} HP</span>
           </div>
           <div className="h-2 rounded-full bg-secondary overflow-hidden">
             <motion.div
@@ -409,11 +410,11 @@ function PlayerField({
                   data-instanceid={b.instanceId}
                   onClick={onBenchClick ? () => onBenchClick(b) : undefined}
                   onContextMenu={onInspect ? (e) => { e.preventDefault(); onInspect(b); } : undefined}
-                  className={`rounded-md border overflow-hidden ${selectable ? "border-primary/60 cursor-pointer" : "border-border"} bg-card`}
+                  className={`rounded-md border overflow-hidden ${selectable ? "border-primary/60 cursor-pointer" : "border-border/50"} bg-black/30 backdrop-blur-sm`}
                 >
-                  <div className={`h-10 bg-gradient-to-br ${bs.bg} flex items-center justify-center`}>
+                  <div className="relative aspect-[2.5/3.5] w-full flex items-center justify-center overflow-hidden">
                     {bImg
-                      ? <img src={bImg} alt={b.def?.name} className="h-full w-auto object-contain" loading="lazy" />
+                      ? <img src={bImg} alt={b.def?.name} className="w-full h-full object-cover" loading="lazy" />
                       : <TypeIcon type={b.def?.energy_type || (b.def?.types?.[0] || "colorless").toLowerCase()} size={18} />}
                   </div>
                   <div className="h-1 bg-secondary">
@@ -1098,7 +1099,10 @@ export default function Battle() {
   );
 
   return (
-    <div className="min-h-screen bg-background pb-10 relative">
+    <div className="min-h-screen bg-background pb-10 relative overflow-hidden">
+      {/* Animated pink-satin playmat background */}
+      <CardFlowBackground variant="satin" tint="magenta" intensity={0.55} />
+      <div className="relative z-10">
       {/* Turn banner */}
       <AnimatePresence>
         {turnBanner && (
@@ -1354,6 +1358,7 @@ export default function Battle() {
         isAI={isAI}
         onChoose={(choice) => applyAndSync(resolveCoinTossChoice(gameState, choice))}
       />
+      </div>
     </div>
   );
 }
