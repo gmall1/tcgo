@@ -108,3 +108,28 @@
     font-family: var(--font-body);
   }
 }
+
+/* Home hero — drifting card collage background */
+@keyframes cardFlowDrift {
+  0%   { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-6%, -12%, 0); }
+}
+.card-flow-drift {
+  animation: cardFlowDrift 42s linear infinite alternate;
+  will-change: transform;
+}
+
+@keyframes cardFlowWaves {
+  0%   { transform: translate3d(-2%, 0, 0); }
+  50%  { transform: translate3d( 2%, -1%, 0); }
+  100% { transform: translate3d(-2%, 0, 0); }
+}
+.card-flow-waves {
+  animation: cardFlowWaves 24s ease-in-out infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-flow-drift,
+  .card-flow-waves { animation: none; }
+}

@@ -1,5 +1,7 @@
-import { SAMPLE_CARDS, TYPE_COLORS } from "@/lib/cardData";
+import { STARTER_POOL, AI_DEFAULT_DECK_IDS, TYPE_COLORS } from "@/lib/cardData";
 import { fetchCard, fetchCardsByIds, fetchSets, searchCards } from "@/lib/pokemonTCGApi";
+
+export { AI_DEFAULT_DECK_IDS };
 
 const SET_CACHE_KEY = "local_tcg_live_sets_cache_v1";
 const CARD_QUERY_PREFIX = "local_tcg_live_card_query_v1:";
@@ -61,7 +63,7 @@ function normalizeLocalCard(card, index) {
     set_id: card.set_id || slugify(card.set_name || "local-demo"),
     image_small: card.image_small || null,
     image_large: card.image_large || null,
-    source: "local",
+    source: card.source || "curated",
   };
 }
 
@@ -105,7 +107,7 @@ export function normalizeApiCardToCatalog(card) {
   };
 }
 
-export const LOCAL_CATALOG_CARDS = SAMPLE_CARDS.map(normalizeLocalCard);
+export const LOCAL_CATALOG_CARDS = STARTER_POOL.map(normalizeLocalCard);
 export const CATALOG_CARDS = LOCAL_CATALOG_CARDS;
 
 const registry = new Map(LOCAL_CATALOG_CARDS.map((card) => [card.id, card]));
@@ -138,6 +140,10 @@ export function getPokemonCards() {
 
 export function getEnergyCards() {
   return [...registry.values()].filter((card) => card.card_type === "energy");
+}
+
+export function getTrainerCards() {
+  return [...registry.values()].filter((card) => card.card_type === "trainer");
 }
 
 // Build a playable 40-card starter deck with a sensible mix of Basic Pokémon,

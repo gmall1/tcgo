@@ -2,15 +2,19 @@
 // AI Deck Builder — guaranteed playable decks for offline play
 // ============================================================
 
-import { getPokemonCards, getEnergyCards, buildStarterDeck } from "./cardCatalog";
+import { getPokemonCards, getEnergyCards, buildStarterDeck, AI_DEFAULT_DECK_IDS } from "./cardCatalog";
 import { getCardById } from "./cardCatalog";
 
 export function buildAIDeck(personality = "balanced") {
-  // Fallback: use starter if catalog empty
+  // Primary path: curated AI deck of real pokemontcg.io ids (every card
+  // resolves in the registry + has real art). Fallback to the generic
+  // starter deck if an older catalog build ever strips those ids.
+  const hydrated = AI_DEFAULT_DECK_IDS.filter((id) => Boolean(getCardById(id)));
+  if (hydrated.length >= 20) return AI_DEFAULT_DECK_IDS.slice();
+
   const deck = buildStarterDeck();
   if (deck.length >= 20) return deck;
 
-  // Otherwise, build from scratch using what's available
   return buildBalancedDeck();
 }
 
@@ -87,26 +91,9 @@ export function buildStallDeck() {
   return deck.slice(0, 60);
 }
 
-// Hardcoded minimal deck — works 100% offline, no API needed
-const HARDCODED_AI_DECK = [
-  // Pokémon (basic only, guaranteed to exist in cardData.js)
-  "charizard-ex", "charizard-ex", "charizard-ex", "charizard-ex",
-  "pikachu-vmax", "pikachu-vmax", "pikachu-vmax", "pikachu-vmax",
-  "blastoise", "blastoise", "blastoise", "blastoise",
-  "venusaur", "venusaur", "venusaur", "venusaur",
-  "eevee", "eevee", "eevee", "eevee",
-  "charmander", "charmander", "charmander", "charmander",
-  
-  // Energy to fill to 60
-  "fire-energy", "fire-energy", "fire-energy", "fire-energy",
-  "fire-energy", "fire-energy", "fire-energy", "fire-energy",
-  "water-energy", "water-energy", "water-energy", "water-energy",
-  "water-energy", "water-energy", "water-energy", "water-energy",
-  "grass-energy", "grass-energy", "grass-energy", "grass-energy",
-  "grass-energy", "grass-energy", "grass-energy", "grass-energy",
-  "electric-energy", "electric-energy", "electric-energy", "electric-energy",
-  "electric-energy", "electric-energy", "electric-energy", "electric-energy",
-];
+// Offline fallback: use the curated-pool ids exported from cardCatalog so
+// we never produce a deck full of ids that don't resolve.
+const HARDCODED_AI_DECK = AI_DEFAULT_DECK_IDS;
 
 // Transform card IDs to guaranteed-to-work card objects for engine
 export function hydrateAIDeck(cardIds) {

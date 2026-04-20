@@ -1,57 +1,149 @@
+// Curated starter pool of REAL pokemontcg.io cards.
+// Every id resolves against the public Pokémon TCG API (pokemontcg.io) and
+// has a real card image, so nothing in the app ever renders a blank
+// placeholder. Full card data is hydrated from the API on app boot; the
+// fallback stats below keep the engine playable when the API is offline.
+//
+// SAMPLE_CARDS / the "Sample Cards" admin editor were removed — having two
+// sources of truth (junk local stubs vs. real API data) was the root cause
+// of the auto-deck + Psychic Energy bugs.
+
 const TYPE_COLORS = {
   fire:       { bg: "from-red-700 to-orange-900",    text: "text-red-400",     abbr: "F"  },
   water:      { bg: "from-blue-600 to-blue-900",     text: "text-blue-400",    abbr: "W"  },
   grass:      { bg: "from-green-600 to-emerald-900", text: "text-green-400",   abbr: "G"  },
   electric:   { bg: "from-yellow-500 to-amber-800",  text: "text-yellow-400",  abbr: "L"  },
+  lightning:  { bg: "from-yellow-500 to-amber-800",  text: "text-yellow-400",  abbr: "L"  },
   psychic:    { bg: "from-purple-600 to-purple-900", text: "text-purple-400",  abbr: "P"  },
   fighting:   { bg: "from-red-800 to-red-950",       text: "text-orange-300",  abbr: "FG" },
   dark:       { bg: "from-gray-700 to-gray-950",     text: "text-gray-400",    abbr: "D"  },
+  darkness:   { bg: "from-gray-700 to-gray-950",     text: "text-gray-400",    abbr: "D"  },
   steel:      { bg: "from-slate-500 to-slate-800",   text: "text-slate-300",   abbr: "M"  },
+  metal:      { bg: "from-slate-500 to-slate-800",   text: "text-slate-300",   abbr: "M"  },
   fairy:      { bg: "from-pink-500 to-rose-800",     text: "text-pink-400",    abbr: "Y"  },
   dragon:     { bg: "from-indigo-600 to-violet-950", text: "text-indigo-400",  abbr: "N"  },
   normal:     { bg: "from-slate-500 to-slate-700",   text: "text-gray-300",    abbr: "C"  },
   colorless:  { bg: "from-slate-500 to-slate-700",   text: "text-gray-300",    abbr: "C"  },
 };
 
-const SAMPLE_CARDS = [
-  { name: "Charizard EX", card_type: "pokemon", hp: 330, energy_type: "fire", stage: "ex", rarity: "ultra_rare", set_name: "Obsidian Flames", attack1_name: "Burning Dark", attack1_damage: 180, attack1_cost: 3, attack2_name: "Inferno Reign", attack2_damage: 330, attack2_cost: 5, weakness: "water", retreat_cost: 3 },
-  { name: "Pikachu VMAX", card_type: "pokemon", hp: 310, energy_type: "electric", stage: "vmax", rarity: "ultra_rare", set_name: "Vivid Voltage", attack1_name: "Thunder Bolt", attack1_damage: 120, attack1_cost: 2, attack2_name: "G-Max Volt Crash", attack2_damage: 270, attack2_cost: 4, weakness: "fighting", retreat_cost: 2 },
-  { name: "Mewtwo VSTAR", card_type: "pokemon", hp: 280, energy_type: "psychic", stage: "vstar", rarity: "ultra_rare", set_name: "Pokemon GO", attack1_name: "Psy Purge", attack1_damage: 90, attack1_cost: 2, attack2_name: "Star Raid", attack2_damage: 220, attack2_cost: 3, weakness: "dark", retreat_cost: 2 },
-  { name: "Blastoise", card_type: "pokemon", hp: 180, energy_type: "water", stage: "stage2", rarity: "holo_rare", set_name: "Base Set", attack1_name: "Hydro Pump", attack1_damage: 60, attack1_cost: 3, attack2_name: "Rain Dance", attack2_damage: 0, attack2_cost: 1, weakness: "electric", retreat_cost: 3 },
-  { name: "Venusaur", card_type: "pokemon", hp: 190, energy_type: "grass", stage: "stage2", rarity: "holo_rare", set_name: "Base Set", attack1_name: "Solar Beam", attack1_damage: 80, attack1_cost: 4, weakness: "fire", retreat_cost: 2 },
-  { name: "Gengar EX", card_type: "pokemon", hp: 260, energy_type: "psychic", stage: "ex", rarity: "ultra_rare", set_name: "Paldea Evolved", attack1_name: "Shadow Claw", attack1_damage: 100, attack1_cost: 2, attack2_name: "Phantom Dive", attack2_damage: 200, attack2_cost: 3, weakness: "dark", retreat_cost: 1 },
-  { name: "Lucario VSTAR", card_type: "pokemon", hp: 270, energy_type: "fighting", stage: "vstar", rarity: "ultra_rare", set_name: "Brilliant Stars", attack1_name: "Aura Sphere", attack1_damage: 70, attack1_cost: 1, attack2_name: "Fighting Knuckle", attack2_damage: 200, attack2_cost: 3, weakness: "psychic", retreat_cost: 2 },
-  { name: "Umbreon VMAX", card_type: "pokemon", hp: 310, energy_type: "dark", stage: "vmax", rarity: "secret_rare", set_name: "Evolving Skies", attack1_name: "Dark Signal", attack1_damage: 0, attack1_cost: 1, attack2_name: "Max Darkness", attack2_damage: 160, attack2_cost: 3, weakness: "grass", retreat_cost: 2 },
-  { name: "Gardevoir EX", card_type: "pokemon", hp: 310, energy_type: "psychic", stage: "ex", rarity: "ultra_rare", set_name: "Scarlet & Violet", attack1_name: "Psychic Embrace", attack1_damage: 0, attack1_cost: 1, attack2_name: "Miracle Force", attack2_damage: 190, attack2_cost: 3, weakness: "steel", retreat_cost: 2 },
-  { name: "Rayquaza VMAX", card_type: "pokemon", hp: 320, energy_type: "dragon", stage: "vmax", rarity: "secret_rare", set_name: "Evolving Skies", attack1_name: "Azure Pulse", attack1_damage: 80, attack1_cost: 1, attack2_name: "Max Burst", attack2_damage: 200, attack2_cost: 3, weakness: "none", retreat_cost: 2 },
-  { name: "Mew VMAX", card_type: "pokemon", hp: 310, energy_type: "psychic", stage: "vmax", rarity: "secret_rare", set_name: "Fusion Strike", attack1_name: "Cross Fusion Strike", attack1_damage: 0, attack1_cost: 2, attack2_name: "Max Miracle", attack2_damage: 130, attack2_cost: 2, weakness: "dark", retreat_cost: 0 },
-  { name: "Arceus VSTAR", card_type: "pokemon", hp: 280, energy_type: "colorless", stage: "vstar", rarity: "ultra_rare", set_name: "Brilliant Stars", attack1_name: "Trinity Nova", attack1_damage: 200, attack1_cost: 3, attack2_name: "Starbirth", attack2_damage: 0, attack2_cost: 0, weakness: "fighting", retreat_cost: 2 },
-  { name: "Eevee", card_type: "pokemon", hp: 60, energy_type: "colorless", stage: "basic", rarity: "common", set_name: "Evolving Skies", attack1_name: "Tackle", attack1_damage: 20, attack1_cost: 1, weakness: "fighting", retreat_cost: 1 },
-  { name: "Charmander", card_type: "pokemon", hp: 70, energy_type: "fire", stage: "basic", rarity: "common", set_name: "Base Set", attack1_name: "Scratch", attack1_damage: 10, attack1_cost: 1, attack2_name: "Ember", attack2_damage: 30, attack2_cost: 2, weakness: "water", retreat_cost: 1 },
-  { name: "Squirtle", card_type: "pokemon", hp: 60, energy_type: "water", stage: "basic", rarity: "common", set_name: "Base Set", attack1_name: "Bubble", attack1_damage: 10, attack1_cost: 1, attack2_name: "Withdraw", attack2_damage: 0, attack2_cost: 1, weakness: "electric", retreat_cost: 1 },
-  { name: "Bulbasaur", card_type: "pokemon", hp: 70, energy_type: "grass", stage: "basic", rarity: "common", set_name: "Base Set", attack1_name: "Vine Whip", attack1_damage: 10, attack1_cost: 1, attack2_name: "Leech Seed", attack2_damage: 20, attack2_cost: 2, weakness: "fire", retreat_cost: 1 },
-  { name: "Dragonite EX", card_type: "pokemon", hp: 330, energy_type: "dragon", stage: "ex", rarity: "full_art", set_name: "Obsidian Flames", attack1_name: "Dragon Claw", attack1_damage: 140, attack1_cost: 3, attack2_name: "Hyperbeam", attack2_damage: 250, attack2_cost: 5, weakness: "none", retreat_cost: 3 },
-  { name: "Sylveon VMAX", card_type: "pokemon", hp: 310, energy_type: "psychic", stage: "vmax", rarity: "ultra_rare", set_name: "Evolving Skies", attack1_name: "Precious Touch", attack1_damage: 60, attack1_cost: 1, attack2_name: "Max Harmony", attack2_damage: 160, attack2_cost: 3, weakness: "steel", retreat_cost: 2 },
-  { name: "Magikarp", card_type: "pokemon", hp: 30, energy_type: "water", stage: "basic", rarity: "common", set_name: "Base Set", attack1_name: "Splash", attack1_damage: 10, attack1_cost: 1, weakness: "electric", retreat_cost: 1 },
-  { name: "Gyarados EX", card_type: "pokemon", hp: 340, energy_type: "water", stage: "ex", rarity: "ultra_rare", set_name: "Paldea Evolved", attack1_name: "Tyrannical Tail", attack1_damage: 180, attack1_cost: 3, attack2_name: "Rampaging Whirlpool", attack2_damage: 300, attack2_cost: 5, weakness: "electric", retreat_cost: 4 },
-  { name: "Professor's Research", card_type: "trainer", rarity: "uncommon", set_name: "Scarlet & Violet", description: "Discard your hand and draw 7 cards." },
-  { name: "Boss's Orders", card_type: "trainer", rarity: "rare", set_name: "Rebel Clash", description: "Switch 1 of your opponent's Benched Pokemon with their Active Pokemon." },
-  { name: "Ultra Ball", card_type: "trainer", rarity: "uncommon", set_name: "Sun & Moon", description: "Discard 2 cards from your hand. Search your deck for a Pokemon and put it into your hand." },
-  { name: "Rare Candy", card_type: "trainer", rarity: "uncommon", set_name: "Scarlet & Violet", description: "Choose 1 of your Basic Pokemon in play. Search your deck for a Stage 2 card that evolves from that Pokemon and put it onto that Pokemon to evolve it." },
-  { name: "Switch", card_type: "trainer", rarity: "common", set_name: "Base Set", description: "Switch your Active Pokemon with 1 of your Benched Pokemon." },
-  { name: "Nest Ball", card_type: "trainer", rarity: "common", set_name: "Sun & Moon", description: "Search your deck for a Basic Pokemon and put it onto your Bench." },
-  { name: "Battle VIP Pass", card_type: "trainer", rarity: "uncommon", set_name: "Fusion Strike", description: "You can only use this card during your first turn. Search your deck for up to 2 Basic Pokemon and put them onto your Bench." },
-  { name: "Iono", card_type: "trainer", rarity: "rare", set_name: "Paldea Evolved", description: "Each player shuffles their hand into their deck and draws a card for each of their remaining Prize cards." },
-  { name: "Fire Energy", card_type: "energy", energy_type: "fire", rarity: "common", set_name: "Base Set" },
-  { name: "Water Energy", card_type: "energy", energy_type: "water", rarity: "common", set_name: "Base Set" },
-  { name: "Grass Energy", card_type: "energy", energy_type: "grass", rarity: "common", set_name: "Base Set" },
-  { name: "Electric Energy", card_type: "energy", energy_type: "electric", rarity: "common", set_name: "Base Set" },
-  { name: "Psychic Energy", card_type: "energy", energy_type: "psychic", rarity: "common", set_name: "Base Set" },
-  { name: "Fighting Energy", card_type: "energy", energy_type: "fighting", rarity: "common", set_name: "Base Set" },
-  { name: "Dark Energy", card_type: "energy", energy_type: "dark", rarity: "common", set_name: "Base Set" },
-  { name: "Steel Energy", card_type: "energy", energy_type: "steel", rarity: "common", set_name: "Base Set" },
-  { name: "Dragon Energy", card_type: "energy", energy_type: "dragon", rarity: "rare", set_name: "Evolving Skies", description: "Provides 2 energy: 1 Fire and 1 Water." },
-  { name: "Double Turbo Energy", card_type: "energy", energy_type: "colorless", rarity: "uncommon", set_name: "Brilliant Stars", description: "Provides 2 Colorless energy. Attacks do 20 less damage." },
+// Helper: build the pokemontcg.io CDN URL from a card id. The API id is
+// always `<setId>-<number>`, and the image lives at
+// images.pokemontcg.io/<setId>/<number>.png (and _hires.png).
+function imgFor(id, { hires = false } = {}) {
+  const dash = id.lastIndexOf("-");
+  if (dash < 0) return null;
+  const setId = id.slice(0, dash);
+  const number = id.slice(dash + 1);
+  return `https://images.pokemontcg.io/${setId}/${number}${hires ? "_hires" : ""}.png`;
+}
+
+function mkPokemon({ id, name, energy_type, hp, stage = "basic", a1, a2, weakness, retreat, set_name, rarity = "common" }) {
+  return {
+    id,
+    name,
+    card_type: "pokemon",
+    energy_type,
+    hp,
+    stage,
+    rarity,
+    set_name,
+    attack1_name: a1?.name || null,
+    attack1_damage: a1?.dmg ?? 0,
+    attack1_cost: a1?.cost ?? 1,
+    attack2_name: a2?.name || null,
+    attack2_damage: a2?.dmg ?? 0,
+    attack2_cost: a2?.cost ?? 0,
+    weakness: weakness || "none",
+    retreat_cost: retreat ?? 1,
+    image_small: imgFor(id),
+    image_large: imgFor(id, { hires: true }),
+  };
+}
+
+function mkTrainer({ id, name, description, set_name, isSupporter = false }) {
+  return {
+    id,
+    name,
+    card_type: "trainer",
+    rarity: "uncommon",
+    set_name,
+    description,
+    isSupporter,
+    image_small: imgFor(id),
+    image_large: imgFor(id, { hires: true }),
+  };
+}
+
+function mkEnergy({ id, name, energy_type, set_name = "Scarlet & Violet Energies" }) {
+  return {
+    id,
+    name,
+    card_type: "energy",
+    energy_type,
+    rarity: "common",
+    set_name,
+    image_small: imgFor(id),
+    image_large: imgFor(id, { hires: true }),
+  };
+}
+
+// ---- Curated pool (~32 real cards). Every id verified against the API. ----
+const STARTER_POOL = [
+  // Basic Pokémon — Base Set (base1)
+  mkPokemon({ id: "base1-46", name: "Charmander", energy_type: "fire", hp: 50, a1: { name: "Scratch", dmg: 10, cost: 1 }, a2: { name: "Ember", dmg: 30, cost: 2 }, weakness: "water", retreat: 1, set_name: "Base Set" }),
+  mkPokemon({ id: "base1-44", name: "Bulbasaur", energy_type: "grass", hp: 40, a1: { name: "Leech Seed", dmg: 20, cost: 2 }, weakness: "fire", retreat: 1, set_name: "Base Set" }),
+  mkPokemon({ id: "base1-58", name: "Pikachu", energy_type: "lightning", hp: 40, a1: { name: "Gnaw", dmg: 10, cost: 1 }, a2: { name: "Thunder Jolt", dmg: 30, cost: 2 }, weakness: "fighting", retreat: 1, set_name: "Base Set" }),
+  mkPokemon({ id: "base1-20", name: "Electabuzz", energy_type: "lightning", hp: 70, a1: { name: "Thundershock", dmg: 10, cost: 1 }, a2: { name: "Thunderpunch", dmg: 30, cost: 2 }, weakness: "fighting", retreat: 2, set_name: "Base Set", rarity: "uncommon" }),
+  mkPokemon({ id: "base1-28", name: "Growlithe", energy_type: "fire", hp: 60, a1: { name: "Flare", dmg: 20, cost: 2 }, weakness: "water", retreat: 1, set_name: "Base Set", rarity: "uncommon" }),
+  mkPokemon({ id: "base1-36", name: "Magmar", energy_type: "fire", hp: 50, a1: { name: "Fire Punch", dmg: 30, cost: 2 }, a2: { name: "Flamethrower", dmg: 50, cost: 3 }, weakness: "water", retreat: 2, set_name: "Base Set", rarity: "uncommon" }),
+  mkPokemon({ id: "base1-41", name: "Seel", energy_type: "water", hp: 60, a1: { name: "Headbutt", dmg: 10, cost: 1 }, weakness: "lightning", retreat: 1, set_name: "Base Set", rarity: "uncommon" }),
+  mkPokemon({ id: "base1-59", name: "Poliwag", energy_type: "water", hp: 40, a1: { name: "Water Gun", dmg: 10, cost: 1 }, weakness: "grass", retreat: 1, set_name: "Base Set" }),
+  mkPokemon({ id: "base1-35", name: "Magikarp", energy_type: "water", hp: 30, a1: { name: "Tackle", dmg: 10, cost: 1 }, a2: { name: "Flail", dmg: 10, cost: 1 }, weakness: "lightning", retreat: 1, set_name: "Base Set" }),
+  mkPokemon({ id: "base1-10", name: "Mewtwo", energy_type: "psychic", hp: 60, a1: { name: "Psychic", dmg: 10, cost: 2 }, a2: { name: "Barrier", dmg: 0, cost: 2 }, weakness: "psychic", retreat: 3, set_name: "Base Set", rarity: "holo_rare" }),
+  mkPokemon({ id: "base1-43", name: "Abra", energy_type: "psychic", hp: 30, a1: { name: "Psyshock", dmg: 10, cost: 1 }, weakness: "psychic", retreat: 0, set_name: "Base Set" }),
+  mkPokemon({ id: "base1-49", name: "Drowzee", energy_type: "psychic", hp: 50, a1: { name: "Pound", dmg: 10, cost: 1 }, a2: { name: "Confuse Ray", dmg: 10, cost: 2 }, weakness: "psychic", retreat: 1, set_name: "Base Set" }),
+  mkPokemon({ id: "base1-7", name: "Hitmonchan", energy_type: "fighting", hp: 70, a1: { name: "Jab", dmg: 20, cost: 1 }, a2: { name: "Special Punch", dmg: 40, cost: 3 }, weakness: "psychic", retreat: 2, set_name: "Base Set", rarity: "holo_rare" }),
+  mkPokemon({ id: "base1-56", name: "Onix", energy_type: "fighting", hp: 90, a1: { name: "Rock Throw", dmg: 10, cost: 1 }, a2: { name: "Harden", dmg: 0, cost: 2 }, weakness: "grass", retreat: 3, set_name: "Base Set" }),
+  mkPokemon({ id: "base1-16", name: "Zapdos", energy_type: "lightning", hp: 90, a1: { name: "Thunder", dmg: 60, cost: 3 }, a2: { name: "Thunderbolt", dmg: 100, cost: 4 }, weakness: "none", retreat: 3, set_name: "Base Set", rarity: "holo_rare" }),
+  mkPokemon({ id: "base1-3", name: "Chansey", energy_type: "colorless", hp: 120, a1: { name: "Scrunch", dmg: 0, cost: 1 }, a2: { name: "Double-edge", dmg: 80, cost: 4 }, weakness: "fighting", retreat: 1, set_name: "Base Set", rarity: "holo_rare" }),
+
+  // Trainers — Base Set (base1)
+  mkTrainer({ id: "base1-82", name: "Full Heal", description: "Your Active Pokémon is no longer Asleep, Confused, Paralyzed, Poisoned, or Burned.", set_name: "Base Set" }),
+  mkTrainer({ id: "base1-84", name: "PlusPower", description: "Attach to your Active Pokémon. If it attacks this turn, the attack does 10 more damage to the Active Pokémon.", set_name: "Base Set" }),
+  mkTrainer({ id: "base1-80", name: "Defender", description: "Attach to 1 of your Pokémon. It takes 20 less damage from opponent's attacks until end of opponent's next turn.", set_name: "Base Set" }),
+  mkTrainer({ id: "base1-81", name: "Energy Retrieval", description: "Trade 1 card from your hand for up to 2 basic Energy cards from your discard pile.", set_name: "Base Set" }),
+  mkTrainer({ id: "base1-83", name: "Maintenance", description: "Shuffle 2 cards from your hand into your deck, then draw a card.", set_name: "Base Set" }),
+  mkTrainer({ id: "base1-78", name: "Scoop Up", description: "Choose 1 of your Pokémon in play; return its Basic to your hand. Discard attached cards.", set_name: "Base Set" }),
+  mkTrainer({ id: "base1-75", name: "Lass", description: "Each player shuffles all Trainer cards from their hand into their deck.", set_name: "Base Set", isSupporter: true }),
+  mkTrainer({ id: "base1-73", name: "Impostor Professor Oak", description: "Your opponent shuffles their hand into their deck and draws 7 cards.", set_name: "Base Set", isSupporter: true }),
+
+  // Basic Energies — Scarlet & Violet Energies (sve) — modern clean art
+  mkEnergy({ id: "sve-1", name: "Grass Energy", energy_type: "grass" }),
+  mkEnergy({ id: "sve-2", name: "Fire Energy", energy_type: "fire" }),
+  mkEnergy({ id: "sve-3", name: "Water Energy", energy_type: "water" }),
+  mkEnergy({ id: "sve-4", name: "Lightning Energy", energy_type: "lightning" }),
+  mkEnergy({ id: "sve-5", name: "Psychic Energy", energy_type: "psychic" }),
+  mkEnergy({ id: "sve-6", name: "Fighting Energy", energy_type: "fighting" }),
+  mkEnergy({ id: "sve-7", name: "Darkness Energy", energy_type: "darkness" }),
+  mkEnergy({ id: "sve-8", name: "Metal Energy", energy_type: "metal" }),
 ];
 
-export { TYPE_COLORS, SAMPLE_CARDS };
+// A thin list of ids for the AI opponent's default deck. Crosses energy
+// types so attacks across the pool can be paid for.
+const AI_DEFAULT_DECK_IDS = [
+  // 4x each of 4 attackers = 16
+  "base1-46", "base1-46", "base1-46", "base1-46",
+  "base1-58", "base1-58", "base1-58", "base1-58",
+  "base1-7",  "base1-7",  "base1-7",  "base1-7",
+  "base1-10", "base1-10", "base1-10", "base1-10",
+  // 8 support basics
+  "base1-3", "base1-3", "base1-28", "base1-28",
+  "base1-59", "base1-59", "base1-44", "base1-44",
+  // 16 energies (4 of each matching colour)
+  "sve-2", "sve-2", "sve-2", "sve-2",
+  "sve-4", "sve-4", "sve-4", "sve-4",
+  "sve-6", "sve-6", "sve-6", "sve-6",
+  "sve-5", "sve-5", "sve-5", "sve-5",
+];
+
+export { TYPE_COLORS, STARTER_POOL, AI_DEFAULT_DECK_IDS };
