@@ -624,9 +624,14 @@ export function performAttack(gs, attackIndex) {
     }
   }
 
-  // Apply damage
-  let newDefender = { ...defender, damage: defender.damage + finalDmg, damageReduction: 0 };
-  if (defenderProtected) newDefender = { ...defender };
+  // Apply damage. Use the defender reference mutated by `resolveAttackText`
+  // (via `opp = effects.opp`) so status conditions, `cantAttackUntilTurn`,
+  // energy discards, etc. set during resolution are preserved. Fall back to
+  // the captured `defender` only if the resolver cleared it.
+  const currentDefender = opp.activePokemon || defender;
+  let newDefender = defenderProtected
+    ? { ...currentDefender }
+    : { ...currentDefender, damage: currentDefender.damage + finalDmg, damageReduction: 0 };
   opp.activePokemon = newDefender;
 
   // ── Custom mechanic hook ─────────────────────────────────
@@ -852,15 +857,6 @@ function resolveAttackText(attack, attacker, defender, damage, ps, opp, log, gs)
   if (!text.includes("flip") && text.includes("burned")) {
     opp.activePokemon = { ...opp.activePokemon, specialCondition: SPECIAL_CONDITIONS.BURNED };
     extraLog.push(`${defender.def.name} is now Burned!`);
-  }
-
-  // Heal self
-  if (text.includes("heal") && text.includes("from this pokémon")) {
-    const healMatch = text.match(/heal (\d+)/);
-    if (healMatch) {
-      attacker.damage = Math.max(0, attacker.damage - parseInt(healMatch[1]));
-      extraLog.push(`${attacker.def.name} healed ${healMatch[1]} damage.`);
-    }
   }
 
   // Discard energy from attacker

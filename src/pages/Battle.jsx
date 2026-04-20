@@ -105,7 +105,10 @@ function normalizeEngineCard(c) {
     stage,
     hp: c.hp ? Number(c.hp) : (c.card_type === "pokemon" ? 70 : null),
     attacks,
-    weaknesses: c.weaknesses || (c.weakness && c.weakness !== "none" ? [{ type: c.weakness, value: "x2" }] : []),
+    // `calcDamage` in gameEngine checks `value.startsWith("×")` (U+00D7, Unicode
+    // multiplication sign) — NOT ASCII 'x'. Use the Unicode form so starter-deck
+    // weakness actually multiplies damage.
+    weaknesses: c.weaknesses || (c.weakness && c.weakness !== "none" ? [{ type: c.weakness, value: "\u00d72" }] : []),
     resistances: c.resistances || [],
     convertedRetreatCost: Number(retreat) || 0,
     rules,
