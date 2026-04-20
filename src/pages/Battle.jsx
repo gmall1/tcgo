@@ -793,6 +793,9 @@ export default function Battle() {
   // AI turn
   useEffect(() => {
     if (!isAI || !gameState || gameState.phase !== "main" || gameState.activePlayer !== opponentSide) return;
+    // Hold off until the coin toss is resolved — otherwise the AI timer
+    // races the overlay's auto-pick and clobbers `awaitingChoice`.
+    if (gameState.initialCoinToss?.awaitingChoice) return;
     setAiThinking(true);
     setAiComment("Sparky is thinking…");
     const timer = window.setTimeout(() => {
