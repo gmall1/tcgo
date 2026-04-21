@@ -87,7 +87,15 @@ function DeckRow({ deck, index }) {
 
           <div className="flex-1 min-w-0 space-y-2">
             <div>
-              <p className="font-display font-bold text-base leading-tight truncate">{deck.name}</p>
+              <div className="flex items-center gap-2">
+                <p className="font-display font-bold text-base leading-tight truncate">{deck.name}</p>
+                {(deck.premade || deck.source === "premade") && (
+                  <Badge className="font-body text-[9px] bg-primary/15 text-primary border border-primary/30 px-1.5 py-0">Premade</Badge>
+                )}
+              </div>
+              {deck.description && (
+                <p className="text-[11px] font-body text-muted-foreground mt-0.5 line-clamp-1">{deck.description}</p>
+              )}
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <Badge variant="outline" className="font-body text-[10px] capitalize px-1.5 py-0">{deck.mode || "unlimited"}</Badge>
                 <span className="text-[11px] font-body text-muted-foreground">

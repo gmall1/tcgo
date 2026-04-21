@@ -33,16 +33,41 @@ function scoreAttack(attack, attacker, defender, personality) {
   let score = attack.damageValue || 0;
   const text = (attack.text || "").toLowerCase();
   const remainingHp = (defender?.def?.hp || 100) - (defender?.damage || 0);
-  if (score >= remainingHp) score += 50;
-  if (score >= remainingHp * 0.5) score += 20;
-  if (text.includes("paralyz")) score += 25;
-  if (text.includes("asleep")) score += 15;
-  if (text.includes("poison")) score += 20;
-  if (text.includes("confus")) score += 12;
-  if (text.includes("burned")) score += 18;
+  const attackerHp = attacker?.def?.hp || 100;
+  const attackerRemaining = attackerHp - (attacker?.damage || 0);
+
+  // Lethal is almost always correct.
+  if (score >= remainingHp) score += 80;
+  else if (score >= remainingHp * 0.6) score += 25;
+
+  // Status-infliction is high-value pressure.
+  if (text.includes("paralyz")) score += 28;
+  if (text.includes("asleep")) score += 18;
+  if (text.includes("poison")) score += 22;
+  if (text.includes("confus")) score += 14;
+  if (text.includes("burn")) score += 20;
+
+  // Bench / spread damage — weight higher when opponent has a loaded bench
+  // we can press, lower when they have nothing on the bench.
+  if (/benched|bench|each of your opponent'?s/.test(text)) score += 12;
+
+  // Coin-flip attacks are less reliable; damp their score slightly.
+  if (/flip (a |the )?coin/i.test(text)) score -= 6;
+
+  // Recoil / self-damage — avoid unless we're killing them or we're at full HP.
+  const recoilMatch = text.match(/(\d+) damage to itself/i) || text.match(/takes? (\d+) damage/i);
+  const recoil = recoilMatch ? Number(recoilMatch[1]) : 0;
+  if (recoil > 0) {
+    const wouldKO = score >= remainingHp;
+    if (!wouldKO && recoil >= attackerRemaining) score -= 100;
+    else if (!wouldKO) score -= Math.min(30, recoil * 0.7);
+  }
+
   const subtypes = defender?.def?.subtypes || [];
-  if (subtypes.some(s => ["EX","GX","VMAX","VSTAR","ex"].includes(s))) score += 30;
-  return score * personality.attackWeight;
+  if (subtypes.some(s => ["EX","GX","VMAX","VSTAR","ex"].includes(s))) score += 35;
+
+  // Always prefer to attack vs. letting a turn pass — ensure positive baseline.
+  return Math.max(1, score) * personality.attackWeight;
 }
 
 function chooseBestPromotion(bench) {

@@ -8,12 +8,12 @@ import { Badge } from "@/components/ui/badge";
 import db from "@/lib/localDb";
 import {
   buildStarterDeck,
-  AI_DEFAULT_DECK_IDS,
   getCardById,
   getPokemonCards,
   getTypeStyle,
   hydrateCardsByIds,
 } from "@/lib/cardCatalog";
+import { buildAIDeck } from "@/lib/aiDeckBuilder";
 import {
   autoPromoteAll,
   createGameState,
@@ -730,9 +730,14 @@ export default function Battle() {
         if (isAI && !roomId) {
           const localUser = await db.auth.me().catch(() => ({ full_name: "Trainer" }));
           if (!active) return;
+          // Pick a random AI personality so each match feels distinct.
+          // buildAIDeck hydrates from the live card registry and falls back
+          // to the curated pool when the registry is sparse.
+          const personalities = ["aggressive", "balanced", "stall"];
+          const personality = personalities[Math.floor(Math.random() * personalities.length)];
           const [p1Def, p2Def] = await Promise.all([
             buildPlayerDef(localUser.full_name || "Trainer", buildStarterDeck()),
-            buildPlayerDef(AI_NAME, AI_DEFAULT_DECK_IDS.slice()),
+            buildPlayerDef(AI_NAME, buildAIDeck(personality)),
           ]);
           const gs = createGameState(p1Def, p2Def, mode);
           if (!active) return;
