@@ -39,7 +39,17 @@ import { soundManager } from "@/lib/soundManager";
 import CardFlowBackground from "@/components/home/CardFlowBackground";
 
 const AI_NAME = "Trainer Sparky";
-const AI_DELAY_MS = 1400;
+// Slower, more "thoughtful" pacing with variance so turns don't feel robotic.
+// Base: 2200ms, plus up to 900ms jitter. Override with ?aiSpeed=fast|slow.
+const AI_DELAY_BASE_MS = 2200;
+const AI_DELAY_JITTER_MS = 900;
+function rollAIDelay() {
+  const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const speed = params?.get("aiSpeed");
+  if (speed === "fast") return 700;
+  if (speed === "slow") return 3600 + Math.floor(Math.random() * 1200);
+  return AI_DELAY_BASE_MS + Math.floor(Math.random() * AI_DELAY_JITTER_MS);
+}
 
 function clampLogs(logs) { return logs.slice(-12); }
 
@@ -835,7 +845,7 @@ export default function Battle() {
         setAiThinking(false);
         window.setTimeout(() => setAiComment(""), 2800);
       }
-    }, AI_DELAY_MS);
+    }, rollAIDelay());
     return () => window.clearTimeout(timer);
   }, [gameState, isAI, opponentSide, playerSide]);
 

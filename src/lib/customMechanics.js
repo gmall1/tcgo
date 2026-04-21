@@ -139,3 +139,87 @@ export function registerDefaultMechanics() {
 
 // Initialize on load
 registerDefaultMechanics();
+
+// ============================================================
+// Auto-detection — infer a mechanic id from an attack's rules text
+// so cards pulled from the Pokémon TCG API automatically gain real
+// effects (heal, coin flip, status, bench spread, draw) during battle.
+// ============================================================
+const AUTO_MECHANIC_PATTERNS = [
+  {
+    match: /heal (\d+) damage/i,
+    build: (m) => ({ id: "heal", opts: { amount: Number(m[1]) || 20 } }),
+  },
+  {
+    match: /remove (\d+) damage/i,
+    build: (m) => ({ id: "heal", opts: { amount: Number(m[1]) || 10 } }),
+  },
+  {
+    match: /draw (\d+) cards?/i,
+    build: (m) => ({ id: "draw-cards", opts: { amount: Number(m[1]) || 1 } }),
+  },
+  {
+    match: /(burn(?:ed)?)/i,
+    build: () => ({ id: "apply-condition", opts: { condition: "burned", target: "opponent-active" } }),
+  },
+  {
+    match: /(poison(?:ed)?)/i,
+    build: () => ({ id: "apply-condition", opts: { condition: "poisoned", target: "opponent-active" } }),
+  },
+  {
+    match: /(paralyz(?:ed)?)/i,
+    build: () => ({ id: "apply-condition", opts: { condition: "paralyzed", target: "opponent-active" } }),
+  },
+  {
+    match: /(asleep|sleep)/i,
+    build: () => ({ id: "apply-condition", opts: { condition: "asleep", target: "opponent-active" } }),
+  },
+  {
+    match: /(confus(?:ed|ion)?)/i,
+    build: () => ({ id: "apply-condition", opts: { condition: "confused", target: "opponent-active" } }),
+  },
+  {
+    match: /flip a coin.{0,80}?heads/i,
+    build: () => ({ id: "coin-flip", opts: {} }),
+  },
+  {
+    match: /each of your opponent'?s benched/i,
+    build: (m, text) => {
+      const dmg = text.match(/(\d+) damage/i);
+      return { id: "damage-spread", opts: { damage: Number(dmg?.[1]) || 10, targets: ["opponent-bench-0", "opponent-bench-1", "opponent-bench-2", "opponent-bench-3", "opponent-bench-4"] } };
+    },
+  },
+  {
+    match: /1 of your opponent'?s benched/i,
+    build: (m, text) => {
+      const dmg = text.match(/(\d+) damage/i);
+      return { id: "damage-spread", opts: { damage: Number(dmg?.[1]) || 20, targets: ["opponent-bench-0"] } };
+    },
+  },
+  {
+    match: /attach (a |an |one |1 )?.*?energy.*?(from|to)/i,
+    build: () => ({ id: "energy-acceleration", opts: { amount: 1, energyType: "colorless" } }),
+  },
+];
+
+/**
+ * Given attack rules text, return an array of { id, opts } mechanic entries
+ * that should fire after base damage resolves. Multiple patterns can match.
+ */
+export function inferMechanicsFromAttackText(text) {
+  const clean = String(text || "").trim();
+  if (!clean) return [];
+  const out = [];
+  const seen = new Set();
+  for (const rule of AUTO_MECHANIC_PATTERNS) {
+    const m = clean.match(rule.match);
+    if (!m) continue;
+    const entry = rule.build(m, clean);
+    if (!entry?.id) continue;
+    const key = `${entry.id}:${JSON.stringify(entry.opts || {})}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(entry);
+  }
+  return out;
+}

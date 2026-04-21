@@ -4,6 +4,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { queryClientInstance } from "@/lib/query-client";
 import { AuthProvider } from "@/lib/AuthContext";
 import PageNotFound from "@/lib/PageNotFound";
+import SplashScreen from "@/components/SplashScreen";
+import { seedPremadeDecks } from "@/lib/premadeDecks";
 import Home from "@/pages/Home";
 import Collection from "@/pages/Collection";
 import Decks from "@/pages/Decks";
@@ -43,6 +45,12 @@ function AppRoutes() {
   );
 }
 
+try {
+  seedPremadeDecks();
+} catch (err) {
+  console.warn("Failed to seed premade decks", err);
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -50,6 +58,7 @@ export default function App() {
         <Router>
           <AppRoutes />
         </Router>
+        <SplashScreen />
         <Toaster />
       </QueryClientProvider>
     </AuthProvider>
