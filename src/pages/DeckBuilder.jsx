@@ -274,6 +274,15 @@ export default function DeckBuilder() {
   }, [catalogVersion, deckCardIds]);
 
   const byName = (a, b) => String(a.name || "").localeCompare(String(b.name || ""));
+  // Sort by the set's printed number (numeric-aware so "10" comes after "9",
+  // not between "1" and "2"). Falls back to name for cards without a number.
+  const byNumber = (a, b) => {
+    const an = parseInt(String(a.number || "").replace(/[^\d]/g, ""), 10);
+    const bn = parseInt(String(b.number || "").replace(/[^\d]/g, ""), 10);
+    if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return an - bn;
+    if (Number.isFinite(an) !== Number.isFinite(bn)) return Number.isFinite(an) ? -1 : 1;
+    return byName(a, b);
+  };
 
   // Main grid shows Pokémon (and anything else) from the selected expansion,
   // always alphabetical by name to keep ordering predictable across sets
@@ -301,7 +310,10 @@ export default function DeckBuilder() {
       });
     }
 
-    return [...base].sort(byName);
+    // Within a single expansion, sort by card number so the user sees the
+    // printed order (which is what Perfect Order already looked like and the
+    // user explicitly liked). Falls back to name when numbers are missing.
+    return [...base].sort(byNumber);
   }, [cardResults, typeFilter, filter, search]);
 
   const railEnergies = useMemo(() => {
@@ -552,7 +564,7 @@ export default function DeckBuilder() {
                 <p className="font-display font-bold text-sm tracking-wide">
                   {activeSet?.name || "Pokémon"}
                   <span className="text-muted-foreground font-body ml-2 text-xs">
-                    · sorted A–Z
+                    · sorted by card number
                   </span>
                 </p>
                 <span className="text-xs font-body text-muted-foreground">{filteredCards.length} cards</span>

@@ -105,6 +105,7 @@ export function normalizeApiCardToCatalog(card) {
     release_date: card.set?.releaseDate || null,
     rarity: card.rarity || null,
     stage: card.stage || null,
+    number: card.number || null,
     hp: card.hp || null,
     attack1_name: firstAttack?.name || null,
     attack1_damage: firstAttack?.damageValue ?? 0,
