@@ -11,12 +11,15 @@ import { useToast } from "@/components/ui/use-toast";
 import db from "@/lib/localDb";
 import {
   buildStarterDeck,
+  fetchAllEnergiesCached,
+  fetchAllTrainersCached,
   fetchCatalogCards,
   fetchExpansionSetsCached,
   getCardById,
   getTypeStyle,
   hydrateCardsByIds,
 } from "@/lib/cardCatalog";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 const FILTERS = ["all", "pokemon", "trainer", "energy"];
 const ENERGY_TYPES = ["all","fire","water","grass","lightning","psychic","fighting","darkness","metal","dragon","fairy","colorless"];
@@ -94,6 +97,55 @@ function CardTile({ card, inDeck, onAdd, onRemove, disabled }) {
         )}
       </div>
     </motion.div>
+  );
+}
+
+function RailSection({
+  title,
+  subtitle,
+  count,
+  expanded,
+  onToggleExpanded,
+  scoped,
+  onToggleScope,
+  canScope,
+  children,
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-card/60">
+      <button
+        type="button"
+        onClick={onToggleExpanded}
+        className="w-full flex items-center justify-between px-4 py-3 text-left"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="font-display font-bold text-sm tracking-wide">{title}</span>
+          <Badge variant="secondary" className="font-body text-[10px]">{count}</Badge>
+          <span className="text-[11px] font-body text-muted-foreground truncate">{subtitle}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {canScope && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => { e.stopPropagation(); onToggleScope(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onToggleScope();
+                }
+              }}
+              className={`px-2 py-0.5 rounded-full text-[10px] font-body border transition-colors cursor-pointer ${scoped ? "bg-primary text-primary-foreground border-primary" : "bg-background text-muted-foreground border-border hover:bg-secondary"}`}
+            >
+              {scoped ? "This set only" : "All sets"}
+            </span>
+          )}
+          {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </div>
+      </button>
+      {expanded && <div className="px-4 pb-4">{children}</div>}
+    </div>
   );
 }
 
@@ -181,6 +233,26 @@ export default function DeckBuilder() {
     staleTime: 1000 * 60 * 10,
   });
 
+  // All basic energies + all trainers across sets, cached and always available
+  // in the sidebar rails so users don't have to hunt inside each expansion.
+  const { data: allEnergies = [] } = useQuery({
+    queryKey: ["all-energies"],
+    queryFn: () => fetchAllEnergiesCached(),
+    staleTime: 1000 * 60 * 60,
+  });
+
+  const { data: allTrainers = [] } = useQuery({
+    queryKey: ["all-trainers"],
+    queryFn: () => fetchAllTrainersCached(),
+    staleTime: 1000 * 60 * 60,
+  });
+
+  // Rail controls: scope-to-current-set toggles and expanded/collapsed state.
+  const [energyExpanded, setEnergyExpanded] = useState(true);
+  const [trainerExpanded, setTrainerExpanded] = useState(false);
+  const [scopeEnergyToSet, setScopeEnergyToSet] = useState(false);
+  const [scopeTrainerToSet, setScopeTrainerToSet] = useState(false);
+
   const deckCounts = useMemo(() => countCards(deckCardIds), [deckCardIds]);
 
   const selectedCards = useMemo(() => {
@@ -201,15 +273,72 @@ export default function DeckBuilder() {
     }, { pokemon: 0, trainer: 0, energy: 0 });
   }, [catalogVersion, deckCardIds]);
 
+  const byName = (a, b) => String(a.name || "").localeCompare(String(b.name || ""));
+  // Sort by the set's printed number (numeric-aware so "10" comes after "9",
+  // not between "1" and "2"). Falls back to name for cards without a number.
+  const byNumber = (a, b) => {
+    const an = parseInt(String(a.number || "").replace(/[^\d]/g, ""), 10);
+    const bn = parseInt(String(b.number || "").replace(/[^\d]/g, ""), 10);
+    if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return an - bn;
+    if (Number.isFinite(an) !== Number.isFinite(bn)) return Number.isFinite(an) ? -1 : 1;
+    return byName(a, b);
+  };
+
+  // Main grid shows Pokémon (and anything else) from the selected expansion,
+  // always alphabetical by name to keep ordering predictable across sets
+  // (sets otherwise come back grouped by evolution family, which the user
+  // only wanted for Perfect Order).
   const filteredCards = useMemo(() => {
-    const base = cardResults?.cards || [];
-    if (typeFilter === "all") return base;
-    return base.filter(c => {
-      const et = (c.energy_type || "").toLowerCase();
-      const tf = typeFilter.toLowerCase();
-      return et === tf || (tf === "lightning" && et === "electric");
-    });
-  }, [cardResults, typeFilter]);
+    let base = cardResults?.cards || [];
+
+    // Energies and Trainers are shown in pinned rails, so hide them from the
+    // main grid unless the user explicitly filtered to one of those types
+    // (or is searching, in which case they likely want every hit visible).
+    if (!search) {
+      if (filter === "all") {
+        base = base.filter((c) => c.card_type !== "energy" && c.card_type !== "trainer");
+      } else if (filter === "pokemon") {
+        base = base.filter((c) => c.card_type === "pokemon");
+      }
+    }
+
+    if (typeFilter !== "all") {
+      base = base.filter((c) => {
+        const et = (c.energy_type || "").toLowerCase();
+        const tf = typeFilter.toLowerCase();
+        return et === tf || (tf === "lightning" && et === "electric");
+      });
+    }
+
+    // Within a single expansion, sort by card number so the user sees the
+    // printed order (which is what Perfect Order already looked like and the
+    // user explicitly liked). Falls back to name when numbers are missing.
+    return [...base].sort(byNumber);
+  }, [cardResults, typeFilter, filter, search]);
+
+  const railEnergies = useMemo(() => {
+    let base = allEnergies.slice();
+    if (scopeEnergyToSet && selectedSet) {
+      base = base.filter((c) => c.set_id === selectedSet);
+    }
+    if (search) {
+      const q = search.toLowerCase();
+      base = base.filter((c) => (c.name || "").toLowerCase().includes(q));
+    }
+    return base.sort(byName);
+  }, [allEnergies, scopeEnergyToSet, selectedSet, search]);
+
+  const railTrainers = useMemo(() => {
+    let base = allTrainers.slice();
+    if (scopeTrainerToSet && selectedSet) {
+      base = base.filter((c) => c.set_id === selectedSet);
+    }
+    if (search) {
+      const q = search.toLowerCase();
+      base = base.filter((c) => (c.name || "").toLowerCase().includes(q));
+    }
+    return base.sort(byName);
+  }, [allTrainers, scopeTrainerToSet, selectedSet, search]);
 
   const activeSet = useMemo(() => sets.find(s => s.id === selectedSet) || null, [selectedSet, sets]);
 
@@ -358,30 +487,107 @@ export default function DeckBuilder() {
             ))}
           </div>
 
+          {/* Pinned rails — Energy + Trainer always visible so users don't
+              have to hunt inside every expansion for them. */}
+          <RailSection
+            title="Energies"
+            subtitle={scopeEnergyToSet ? `${activeSet?.name || "This set"} only` : "All sets"}
+            count={railEnergies.length}
+            expanded={energyExpanded}
+            onToggleExpanded={() => setEnergyExpanded((v) => !v)}
+            scoped={scopeEnergyToSet}
+            onToggleScope={() => setScopeEnergyToSet((v) => !v)}
+            canScope={Boolean(selectedSet)}
+          >
+            {railEnergies.length === 0 ? (
+              <p className="text-xs font-body text-muted-foreground p-3">
+                No energies loaded yet. {scopeEnergyToSet ? "Try disabling the set filter." : "Check your connection."}
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8 gap-3">
+                <AnimatePresence mode="popLayout">
+                  {railEnergies.map((card) => (
+                    <CardTile
+                      key={card.id}
+                      card={card}
+                      inDeck={deckCounts[card.id] || 0}
+                      onAdd={addCard}
+                      onRemove={removeCard}
+                      disabled={false}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
+            )}
+          </RailSection>
+
+          <RailSection
+            title="Trainers"
+            subtitle={scopeTrainerToSet ? `${activeSet?.name || "This set"} only` : "All sets"}
+            count={railTrainers.length}
+            expanded={trainerExpanded}
+            onToggleExpanded={() => setTrainerExpanded((v) => !v)}
+            scoped={scopeTrainerToSet}
+            onToggleScope={() => setScopeTrainerToSet((v) => !v)}
+            canScope={Boolean(selectedSet)}
+          >
+            {railTrainers.length === 0 ? (
+              <p className="text-xs font-body text-muted-foreground p-3">
+                No trainers loaded yet. {scopeTrainerToSet ? "Try disabling the set filter." : "Check your connection."}
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
+                <AnimatePresence mode="popLayout">
+                  {railTrainers.map((card) => (
+                    <CardTile
+                      key={card.id}
+                      card={card}
+                      inDeck={deckCounts[card.id] || 0}
+                      onAdd={addCard}
+                      onRemove={removeCard}
+                      disabled={false}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
+            )}
+          </RailSection>
+
           {/* Card grid */}
           {!selectedSet ? (
             <div className="rounded-2xl border border-dashed border-border p-12 text-center">
               <p className="font-body text-muted-foreground">Select an expansion above to browse cards.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
-              <AnimatePresence mode="popLayout">
-                {(cardResults?.cards || []).map((card, i) => (
-                  <CardTile
-                    key={card.id}
-                    card={card}
-                    inDeck={deckCounts[card.id] || 0}
-                    onAdd={addCard}
-                    onRemove={removeCard}
-                    disabled={false}
-                  />
-                ))}
-              </AnimatePresence>
-              {(cardResults?.cards || []).length === 0 && !isFetching && (
-                <div className="col-span-full rounded-2xl border border-dashed border-border p-10 text-center">
-                  <p className="font-body text-muted-foreground">No cards found. Try a different search or filter.</p>
-                </div>
-              )}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="font-display font-bold text-sm tracking-wide">
+                  {activeSet?.name || "Pokémon"}
+                  <span className="text-muted-foreground font-body ml-2 text-xs">
+                    · sorted by card number
+                  </span>
+                </p>
+                <span className="text-xs font-body text-muted-foreground">{filteredCards.length} cards</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
+                <AnimatePresence mode="popLayout">
+                  {filteredCards.map((card) => (
+                    <CardTile
+                      key={card.id}
+                      card={card}
+                      inDeck={deckCounts[card.id] || 0}
+                      onAdd={addCard}
+                      onRemove={removeCard}
+                      disabled={false}
+                    />
+                  ))}
+                </AnimatePresence>
+                {filteredCards.length === 0 && !isFetching && (
+                  <div className="col-span-full rounded-2xl border border-dashed border-border p-10 text-center">
+                    <p className="font-body text-muted-foreground">No cards found. Try a different search or filter.</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

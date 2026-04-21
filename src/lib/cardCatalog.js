@@ -1,5 +1,6 @@
 import { STARTER_POOL, AI_DEFAULT_DECK_IDS, TYPE_COLORS } from "@/lib/cardData";
 import { fetchCard, fetchCardsByIds, fetchSets, searchCards } from "@/lib/pokemonTCGApi";
+import { inferMechanicsFromAttackText } from "@/lib/customMechanics";
 
 export { AI_DEFAULT_DECK_IDS };
 
@@ -67,11 +68,26 @@ function normalizeLocalCard(card, index) {
   };
 }
 
+function enrichAttacksWithMechanics(rawAttacks) {
+  if (!Array.isArray(rawAttacks)) return [];
+  return rawAttacks.map((atk) => {
+    if (!atk) return atk;
+    const mechanics = inferMechanicsFromAttackText(atk.text || "");
+    if (!mechanics.length) return atk;
+    const existing = Array.isArray(atk.custom_mechanics) ? atk.custom_mechanics : [];
+    return {
+      ...atk,
+      custom_mechanics: [...existing, ...mechanics],
+    };
+  });
+}
+
 export function normalizeApiCardToCatalog(card) {
   const cardType = card.supertype === "Pokémon" ? "pokemon" : String(card.supertype || "").toLowerCase();
   const primaryType = card.types?.[0] || null;
-  const firstAttack = card.attacks?.[0] || null;
-  const secondAttack = card.attacks?.[1] || null;
+  const enrichedAttacks = enrichAttacksWithMechanics(card.attacks);
+  const firstAttack = enrichedAttacks[0] || null;
+  const secondAttack = enrichedAttacks[1] || null;
   const description =
     card.rules?.join(" ") ||
     card.abilities?.map((ability) => `${ability.name}: ${ability.text}`).join(" ") ||
@@ -89,6 +105,7 @@ export function normalizeApiCardToCatalog(card) {
     release_date: card.set?.releaseDate || null,
     rarity: card.rarity || null,
     stage: card.stage || null,
+    number: card.number || null,
     hp: card.hp || null,
     attack1_name: firstAttack?.name || null,
     attack1_damage: firstAttack?.damageValue ?? 0,
@@ -100,7 +117,7 @@ export function normalizeApiCardToCatalog(card) {
     supertype: card.supertype,
     subtypes: card.subtypes || [],
     types: card.types || [],
-    attacks: card.attacks || [],
+    attacks: enrichedAttacks,
     abilities: card.abilities || [],
     rules: card.rules || [],
     source: "api",
@@ -198,6 +215,53 @@ export function buildStarterDeck() {
   }
 
   return ids;
+}
+
+const ENERGIES_CACHE_KEY = "local_tcg_live_energies_v1";
+const TRAINERS_CACHE_KEY = "local_tcg_live_trainers_v1";
+
+async function fetchGlobalByType({ query, cacheKey, pageSize = 120, ttl = 1000 * 60 * 60 * 6 }) {
+  const cached = readCache(cacheKey);
+  if (cached) {
+    registerCatalogCards(cached);
+    return cached;
+  }
+
+  try {
+    const result = await searchCards(query, 1, pageSize);
+    const normalized = (result?.cards || []).map(normalizeApiCardToCatalog);
+    registerCatalogCards(normalized);
+    writeCache(cacheKey, normalized, ttl);
+    return normalized;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fetch all Basic Energy cards once and cache them. These are always shown
+ * at the top of the deck builder so users don't have to hunt for energies
+ * inside each expansion.
+ */
+export async function fetchAllEnergiesCached() {
+  return fetchGlobalByType({
+    query: "supertype:Energy subtypes:Basic",
+    cacheKey: ENERGIES_CACHE_KEY,
+    pageSize: 30,
+  });
+}
+
+/**
+ * Fetch a broad selection of Trainer cards so they're always available in the
+ * deck builder regardless of which expansion is currently selected. Limited
+ * to recent sets + popular staples via an orderBy=-releaseDate query.
+ */
+export async function fetchAllTrainersCached() {
+  return fetchGlobalByType({
+    query: "supertype:Trainer",
+    cacheKey: TRAINERS_CACHE_KEY,
+    pageSize: 120,
+  });
 }
 
 export async function fetchExpansionSetsCached() {

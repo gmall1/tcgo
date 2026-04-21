@@ -8,12 +8,12 @@ import { Badge } from "@/components/ui/badge";
 import db from "@/lib/localDb";
 import {
   buildStarterDeck,
-  AI_DEFAULT_DECK_IDS,
   getCardById,
   getPokemonCards,
   getTypeStyle,
   hydrateCardsByIds,
 } from "@/lib/cardCatalog";
+import { buildAIDeck } from "@/lib/aiDeckBuilder";
 import {
   autoPromoteAll,
   createGameState,
@@ -39,7 +39,17 @@ import { soundManager } from "@/lib/soundManager";
 import CardFlowBackground from "@/components/home/CardFlowBackground";
 
 const AI_NAME = "Trainer Sparky";
-const AI_DELAY_MS = 1400;
+// Slower, more "thoughtful" pacing with variance so turns don't feel robotic.
+// Base: 2200ms, plus up to 900ms jitter. Override with ?aiSpeed=fast|slow.
+const AI_DELAY_BASE_MS = 2200;
+const AI_DELAY_JITTER_MS = 900;
+function rollAIDelay() {
+  const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const speed = params?.get("aiSpeed");
+  if (speed === "fast") return 700;
+  if (speed === "slow") return 3600 + Math.floor(Math.random() * 1200);
+  return AI_DELAY_BASE_MS + Math.floor(Math.random() * AI_DELAY_JITTER_MS);
+}
 
 function clampLogs(logs) { return logs.slice(-12); }
 
@@ -720,9 +730,14 @@ export default function Battle() {
         if (isAI && !roomId) {
           const localUser = await db.auth.me().catch(() => ({ full_name: "Trainer" }));
           if (!active) return;
+          // Pick a random AI personality so each match feels distinct.
+          // buildAIDeck hydrates from the live card registry and falls back
+          // to the curated pool when the registry is sparse.
+          const personalities = ["aggressive", "balanced", "stall"];
+          const personality = personalities[Math.floor(Math.random() * personalities.length)];
           const [p1Def, p2Def] = await Promise.all([
             buildPlayerDef(localUser.full_name || "Trainer", buildStarterDeck()),
-            buildPlayerDef(AI_NAME, AI_DEFAULT_DECK_IDS.slice()),
+            buildPlayerDef(AI_NAME, buildAIDeck(personality)),
           ]);
           const gs = createGameState(p1Def, p2Def, mode);
           if (!active) return;
@@ -835,7 +850,7 @@ export default function Battle() {
         setAiThinking(false);
         window.setTimeout(() => setAiComment(""), 2800);
       }
-    }, AI_DELAY_MS);
+    }, rollAIDelay());
     return () => window.clearTimeout(timer);
   }, [gameState, isAI, opponentSide, playerSide]);
 
