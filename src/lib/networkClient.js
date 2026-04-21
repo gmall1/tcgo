@@ -4,6 +4,10 @@
 // and the rest of the app continues using localStorage for sync.
 // =============================================================
 
+// Default public backend used when no VITE_BACKEND_URL is provided and the
+// user has not explicitly set one in the lobby. Lets network multiplayer
+// "just work" out of the box without any configuration.
+const DEFAULT_PUBLIC_URL = "https://tcgo-backend-xzcrxtve.fly.dev";
 const ENV_URL =
   typeof import.meta !== "undefined" ? import.meta.env?.VITE_BACKEND_URL : "";
 const RUNTIME_KEY = "tcg_network_backend_url_v1";
@@ -22,7 +26,7 @@ function normalize(url) {
   return url.replace(/\/$/, "");
 }
 
-let cachedBase = normalize(ENV_URL || readRuntimeUrl());
+let cachedBase = normalize(ENV_URL || readRuntimeUrl() || DEFAULT_PUBLIC_URL);
 
 export function getBackendUrl() {
   return cachedBase;

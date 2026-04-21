@@ -21,7 +21,7 @@ import {
   setActivePokemon,
 } from "@/lib/gameEngine";
 import { performAITurn, getAICommentary } from "@/lib/aiOpponent";
-import { recordMatchResult, subscribeToRoom, syncGameState } from "@/lib/multiplayerSync";
+import { fetchRoom, recordMatchResult, subscribeToRoom, syncGameState } from "@/lib/multiplayerSync";
 
 const AI_NAME = "Trainer Sparky";
 const AI_DELAY_MS = 1400;
@@ -324,7 +324,7 @@ export default function Battle() {
           return;
         }
         if (!roomId) { setError("No battle room provided."); setLoading(false); return; }
-        const room = await db.entities.GameRoom.get(roomId);
+        const room = await fetchRoom(roomId);
         if (!active) return;
         if (!room) { setError("Battle room not found."); setLoading(false); return; }
         setRoomData(room);
