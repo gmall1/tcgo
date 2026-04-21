@@ -1,5 +1,7 @@
-import { SAMPLE_CARDS, TYPE_COLORS } from "@/lib/cardData";
+import { STARTER_POOL, AI_DEFAULT_DECK_IDS, TYPE_COLORS } from "@/lib/cardData";
 import { fetchCard, fetchCardsByIds, fetchSets, searchCards } from "@/lib/pokemonTCGApi";
+
+export { AI_DEFAULT_DECK_IDS };
 
 const SET_CACHE_KEY = "local_tcg_live_sets_cache_v1";
 const CARD_QUERY_PREFIX = "local_tcg_live_card_query_v1:";
@@ -61,7 +63,7 @@ function normalizeLocalCard(card, index) {
     set_id: card.set_id || slugify(card.set_name || "local-demo"),
     image_small: card.image_small || null,
     image_large: card.image_large || null,
-    source: "local",
+    source: card.source || "curated",
   };
 }
 
@@ -105,7 +107,7 @@ export function normalizeApiCardToCatalog(card) {
   };
 }
 
-export const LOCAL_CATALOG_CARDS = SAMPLE_CARDS.map(normalizeLocalCard);
+export const LOCAL_CATALOG_CARDS = STARTER_POOL.map(normalizeLocalCard);
 export const CATALOG_CARDS = LOCAL_CATALOG_CARDS;
 
 const registry = new Map(LOCAL_CATALOG_CARDS.map((card) => [card.id, card]));
@@ -140,16 +142,62 @@ export function getEnergyCards() {
   return [...registry.values()].filter((card) => card.card_type === "energy");
 }
 
-export function buildStarterDeck() {
-  const pokemon = LOCAL_CATALOG_CARDS.filter((card) => card.card_type === "pokemon").slice(0, 12);
-  const energy = LOCAL_CATALOG_CARDS.filter((card) => card.card_type === "energy");
-  const filler = [];
+export function getTrainerCards() {
+  return [...registry.values()].filter((card) => card.card_type === "trainer");
+}
 
-  while (filler.length < 12 && energy.length > 0) {
-    filler.push(energy[filler.length % energy.length]);
+// Build a playable 40-card starter deck with a sensible mix of Basic Pokémon,
+// Trainers, and Energy. Used when a player enters a room without a chosen
+// deck or when the auto-deck button is clicked.
+//
+// A Pokémon's catalog stage is kept as-is for display, but at deck build time
+// we prefer entries whose gameplay stage is "basic" so the game can actually
+// start (non-Basic cards can't be placed as the Active / Bench directly).
+// EX / VMAX / VSTAR / V cards are treated as Basics for this purpose since
+// they stand alone rather than evolving from another card.
+const BASIC_LIKE_STAGES = new Set(["basic", "ex", "vmax", "vstar", "v", "radiant", ""]);
+
+function isBasicLike(card) {
+  if (card.card_type !== "pokemon") return false;
+  const s = String(card.stage || "").toLowerCase();
+  return BASIC_LIKE_STAGES.has(s);
+}
+
+export function buildStarterDeck() {
+  const pool = LOCAL_CATALOG_CARDS;
+  const basics = pool.filter(isBasicLike);
+  const trainers = pool.filter((c) => c.card_type === "trainer");
+  const energies = pool.filter((c) => c.card_type === "energy");
+
+  if (!basics.length || !energies.length) {
+    // Absolute fallback — shouldn't happen, but keep the deck non-empty.
+    return pool.slice(0, 40).map((c) => c.id);
   }
 
-  return [...pokemon, ...filler].map((card) => card.id);
+  const ids = [];
+  const pushCopies = (card, n) => {
+    for (let i = 0; i < n; i++) ids.push(card.id);
+  };
+
+  // 16 Pokémon (up to 4 of each card, cycling through the Basic pool).
+  for (let i = 0; ids.length < 16 && i < basics.length * 4; i++) {
+    const card = basics[i % basics.length];
+    pushCopies(card, 1);
+  }
+
+  // 8 Trainers — mix of supporters / items from whatever's loaded.
+  for (let i = 0; ids.length < 24 && i < trainers.length * 4; i++) {
+    const card = trainers[i % trainers.length];
+    pushCopies(card, 1);
+  }
+
+  // 16 Energies — spread across types so attacks can actually be paid.
+  for (let i = 0; ids.length < 40; i++) {
+    const card = energies[i % energies.length];
+    pushCopies(card, 1);
+  }
+
+  return ids;
 }
 
 export async function fetchExpansionSetsCached() {

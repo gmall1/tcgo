@@ -3,22 +3,22 @@ import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { Swords, Layers, FolderOpen, Zap, Users, Shield, RotateCcw, Coins } from "lucide-react";
 import BottomNav from "@/components/tcg/BottomNav";
+import CardFlowBackground from "@/components/home/CardFlowBackground";
 
 export default function Home() {
   return (
     <div className="min-h-screen bg-background pb-24 overflow-hidden">
       {/* Hero */}
-      <div className="relative overflow-hidden min-h-[38vh] flex items-end">
-        <div className="absolute inset-0 bg-gradient-to-br from-red-950 via-slate-900 to-slate-950" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(200,30,30,0.25),transparent_60%)]" />
+      <div className="relative overflow-hidden min-h-[46vh] flex items-end">
+        <CardFlowBackground density={24} tint="crimson" />
         <div className="absolute top-4 right-4 font-black text-[96px] leading-none text-white/5 select-none tracking-tighter">TCG</div>
-        <div className="relative px-5 pb-8 pt-12">
+        <div className="relative px-5 pb-8 pt-16">
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }}>
-            <p className="text-red-500/70 font-display text-[11px] font-bold tracking-[0.2em] uppercase mb-1">Pokemon</p>
-            <h1 className="font-display text-5xl font-black text-white leading-none tracking-tight">
+            <p className="text-red-200/80 font-display text-[11px] font-bold tracking-[0.2em] uppercase mb-1">Pokémon</p>
+            <h1 className="font-display text-5xl font-black text-white leading-none tracking-tight drop-shadow-[0_2px_12px_rgba(0,0,0,0.55)]">
               TCG<br />LIVE
             </h1>
-            <p className="text-white/40 font-body text-sm mt-3">Full rules. Real cards. Every mechanic.</p>
+            <p className="text-white/75 font-body text-sm mt-3 drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]">Full rules. Real cards. Every mechanic.</p>
           </motion.div>
         </div>
       </div>
@@ -45,8 +45,8 @@ export default function Home() {
         {/* Mode cards */}
         <div className="grid grid-cols-2 gap-3">
           {[
-            { to: "/battle?mode=unlimited&ai=true", gradient: "from-violet-800 to-indigo-950", label: "UNLIMITED", sub: "All cards legal", Icon: Zap, delay: 0.18 },
-            { to: "/battle?mode=standard&ai=true",  gradient: "from-blue-800 to-blue-950",    label: "STANDARD",  sub: "Legal sets only", Icon: Shield, delay: 0.22 },
+            { to: "/battle?mode=unlimited&ai=true", gradient: "from-red-900 to-black",         label: "UNLIMITED", sub: "All cards legal", Icon: Zap, delay: 0.18 },
+            { to: "/battle?mode=standard&ai=true",  gradient: "from-zinc-800 to-black",        label: "STANDARD",  sub: "Legal sets only", Icon: Shield, delay: 0.22 },
           ].map(({ to, gradient, label, sub, Icon, delay }) => (
             <motion.div key={label} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay }}>
               <Link to={to}>
