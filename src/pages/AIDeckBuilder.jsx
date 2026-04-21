@@ -87,7 +87,10 @@ const SET_CODE_MAP = {
   BLK: "zsv10pt5",
   WHT: "rsv10pt5",
   MEG: "me1",
-  MEE: "me1",
+  // MEE ("Mega Evolution Energies") intentionally omitted — the collector
+  // numbers don't line up with me1 (e.g. `MEE 5 = Psychic Energy` but
+  // `me1-5 = Exeggutor`). Falling through to the name-based resolver picks
+  // the correct energy instead of a random Mega Evolution Pokémon.
   POR: "svp",
   SVP: "svp",
   SVE: "sve",

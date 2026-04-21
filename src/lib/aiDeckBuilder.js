@@ -2,8 +2,14 @@
 // AI Deck Builder — guaranteed playable decks for offline play
 // ============================================================
 
-import { getPokemonCards, getEnergyCards, buildStarterDeck, AI_DEFAULT_DECK_IDS } from "./cardCatalog";
-import { getCardById } from "./cardCatalog";
+import {
+  getPokemonCards,
+  getEnergyCards,
+  getTrainerCards,
+  buildStarterDeck,
+  AI_DEFAULT_DECK_IDS,
+  getCardById,
+} from "./cardCatalog";
 
 export function buildAIDeck(personality = "balanced") {
   // Delegate to the per-personality builder so we always emit a 60-card
@@ -25,31 +31,76 @@ export function buildAIDeck(personality = "balanced") {
   return HARDCODED_AI_DECK.slice();
 }
 
-export function buildBalancedDeck() {
-  const pokemon = getPokemonCards().slice(0, 15);
-  const energy = getEnergyCards().slice(0, 5);
+// Shared helper: compose a 60-card deck with a playable Pokémon / Trainer /
+// Energy mix. Callers pass the ordered pool of Pokémon they care about plus
+// a target energy type so attacks can actually be paid.
+function composeDeck({ pokemonPool, targetType, pokemonCount = 20, trainerCount = 12 }) {
+  const pokemonSource = pokemonPool.length ? pokemonPool : getPokemonCards();
+  if (!pokemonSource.length) return HARDCODED_AI_DECK.slice();
 
-  if (pokemon.length === 0) {
-    // Absolute fallback: hardcoded minimal deck for offline play
-    return HARDCODED_AI_DECK.slice();
-  }
+  const trainers = getTrainerCards();
+  const energies = getEnergyCards();
+  const basicEnergies = energies.filter((e) => e.energy_type && !/special/i.test(e.rarity || ""));
+  const energyPool = basicEnergies.length ? basicEnergies : energies;
 
   const deck = [];
 
-  // Add 4 copies each of first 3 basic pokemon
-  for (let i = 0; i < Math.min(3, pokemon.length); i++) {
-    for (let j = 0; j < 4; j++) {
-      deck.push(pokemon[i].id);
+  // 20 Pokémon slots — 4 copies of up to 5 distinct Pokémon, cycling.
+  for (let i = 0; deck.length < pokemonCount; i++) {
+    const card = pokemonSource[i % pokemonSource.length];
+    for (let j = 0; j < 4 && deck.length < pokemonCount; j++) deck.push(card.id);
+  }
+
+  // 12 Trainer slots — 4 copies of up to 3 distinct Trainers.
+  if (trainers.length) {
+    for (let i = 0; deck.length < pokemonCount + trainerCount; i++) {
+      const card = trainers[i % trainers.length];
+      for (let j = 0; j < 4 && deck.length < pokemonCount + trainerCount; j++) deck.push(card.id);
     }
   }
 
-  // Add energy to reach 60 cards
-  while (deck.length < 60 && energy.length > 0) {
-    const energyType = energy[deck.length % energy.length];
-    deck.push(energyType.id);
+  // Remaining slots = energy, biased toward the deck's primary type.
+  const typed = energyPool.filter((e) => e.energy_type === targetType);
+  const colorless = energyPool.filter((e) => e.energy_type === "colorless");
+  const ordered = [...typed, ...colorless, ...energyPool];
+  if (ordered.length) {
+    while (deck.length < 60) {
+      deck.push(ordered[deck.length % ordered.length].id);
+    }
+  }
+
+  // If trainers or energies were missing, top up from the broader pool so we
+  // never return a short deck.
+  while (deck.length < 60) {
+    deck.push(pokemonSource[deck.length % pokemonSource.length].id);
   }
 
   return deck.slice(0, 60);
+}
+
+function dominantType(pokemon) {
+  const counts = new Map();
+  for (const c of pokemon) {
+    const t = c.energy_type || "colorless";
+    counts.set(t, (counts.get(t) || 0) + 1);
+  }
+  let best = "colorless";
+  let bestCount = -1;
+  for (const [t, n] of counts) {
+    if (n > bestCount) {
+      best = t;
+      bestCount = n;
+    }
+  }
+  return best;
+}
+
+export function buildBalancedDeck() {
+  const pokemon = getPokemonCards().slice(0, 5);
+  return composeDeck({
+    pokemonPool: pokemon,
+    targetType: dominantType(pokemon),
+  });
 }
 
 export function buildAggressiveDeck() {
@@ -59,57 +110,36 @@ export function buildAggressiveDeck() {
   // slate that forces the fallback.
   const pool = getPokemonCards();
   let pokemon = pool
-    .filter(c => (c.attack1_damage || 0) >= 50 || (c.attack2_damage || 0) >= 80)
-    .slice(0, 10);
-  if (pokemon.length === 0) {
+    .filter((c) => (c.attack1_damage || 0) >= 50 || (c.attack2_damage || 0) >= 80)
+    .slice(0, 5);
+  if (pokemon.length < 3) {
     pokemon = [...pool]
       .sort((a, b) => {
         const ad = Math.max(a.attack1_damage || 0, a.attack2_damage || 0);
         const bd = Math.max(b.attack1_damage || 0, b.attack2_damage || 0);
         return bd - ad;
       })
-      .slice(0, 10);
+      .slice(0, 5);
   }
-  const energy = getEnergyCards().slice(0, 4);
-
-  if (pokemon.length === 0) return HARDCODED_AI_DECK.slice();
-
-  const deck = [];
-  for (let i = 0; i < Math.min(4, pokemon.length); i++) {
-    for (let j = 0; j < 4; j++) {
-      deck.push(pokemon[i].id);
-    }
-  }
-
-  while (deck.length < 60 && energy.length > 0) {
-    const e = energy[deck.length % energy.length];
-    deck.push(e.id);
-  }
-
-  return deck.slice(0, 60);
+  return composeDeck({
+    pokemonPool: pokemon,
+    targetType: dominantType(pokemon),
+    pokemonCount: 16,
+    trainerCount: 12,
+  });
 }
 
 export function buildStallDeck() {
-  const pokemon = getPokemonCards()
-    .filter(c => (c.hp || 0) > 80)
-    .slice(0, 8);
-  const energy = getEnergyCards().slice(0, 3);
-
-  if (pokemon.length === 0) return HARDCODED_AI_DECK.slice();
-
-  const deck = [];
-  for (let i = 0; i < Math.min(3, pokemon.length); i++) {
-    for (let j = 0; j < 4; j++) {
-      deck.push(pokemon[i].id);
-    }
-  }
-
-  while (deck.length < 60 && energy.length > 0) {
-    const e = energy[deck.length % energy.length];
-    deck.push(e.id);
-  }
-
-  return deck.slice(0, 60);
+  const pool = getPokemonCards();
+  const pokemon = [...pool]
+    .sort((a, b) => (b.hp || 0) - (a.hp || 0))
+    .slice(0, 5);
+  return composeDeck({
+    pokemonPool: pokemon,
+    targetType: dominantType(pokemon),
+    pokemonCount: 16,
+    trainerCount: 16,
+  });
 }
 
 // Offline fallback: use the curated-pool ids exported from cardCatalog so
@@ -120,15 +150,8 @@ const HARDCODED_AI_DECK = AI_DEFAULT_DECK_IDS.slice();
 // Transform card IDs to guaranteed-to-work card objects for engine
 export function hydrateAIDeck(cardIds) {
   return cardIds
-    .map(id => {
-      const card = getCardById(id);
-      if (card) return card;
-      
-      // Fallback: match by name
-      const name = String(id).replace(/-/g, " ").split(" ")[0];
-      return getCardById(id); // Returns null if not found
-    })
-    .filter(c => c !== null);
+    .map((id) => getCardById(id))
+    .filter((c) => c !== null);
 }
 
 export function getRandomAIDeck() {
