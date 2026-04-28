@@ -56,7 +56,12 @@ export default function Lobby() {
   const { toast } = useToast();
 
   const [tab, setTab] = useState("play");
-  const [mode, setMode] = useState("unlimited");
+  // Pre-select the format from `?mode=...` so Home's mode tiles land here
+  // with the right format already chosen.
+  const initialMode = ["unlimited", "standard"].includes(searchParams.get("mode"))
+    ? searchParams.get("mode")
+    : "unlimited";
+  const [mode, setMode] = useState(initialMode);
   const [roomCode, setRoomCode] = useState(searchParams.get("code") || "");
   const [displayName, setDisplayName] = useState(user?.full_name || "Local Player");
   const [error, setError] = useState("");
@@ -98,13 +103,17 @@ export default function Lobby() {
     enabled: Boolean(user?.id),
   });
 
+  // Show every saved deck the player can pick: ones they built (which carry
+  // their user_id) plus the seeded premade decks (which intentionally have
+  // no owner). Filtering strictly by user_id used to hide both premades and
+  // anything imported before login, which made the deck picker look broken.
   const { data: decks = [] } = useQuery({
     queryKey: ["decks", user?.id],
     queryFn: async () => {
-      if (!user?.id) return [];
-      return db.entities.Deck.filter({ user_id: user.id });
+      const all = await db.entities.Deck.list("-updated_date", 100);
+      if (!user?.id) return all;
+      return all.filter((d) => !d.user_id || d.user_id === user.id);
     },
-    enabled: Boolean(user?.id),
   });
 
   const { data: leaderboard = [] } = useQuery({
@@ -124,12 +133,16 @@ export default function Lobby() {
     await renameUser(displayName.trim());
   };
 
+  // Decks are persisted with `card_ids` (not `cards`) — see DeckBuilder save
+  // and premadeDecks seed. The earlier `deck.cards` lookup always missed,
+  // which is why "choose your own deck" silently fell through to a random
+  // auto-deck. Always resolve via card_ids.
   const resolveDeck = useMemo(() => {
     return () => {
       if (selectedDeckId === AUTO_DECK_ID) return randomAutoDeck();
       const deck = decks.find((d) => d.id === selectedDeckId);
-      if (!deck?.cards?.length) return randomAutoDeck();
-      return deck.cards;
+      if (!deck?.card_ids?.length) return randomAutoDeck();
+      return deck.card_ids;
     };
   }, [decks, selectedDeckId]);
 
@@ -155,6 +168,21 @@ export default function Lobby() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Quick "Battle vs AI" — uses the same deck the player picked above and
+  // jumps straight into a single-player match. Previously the only way to
+  // start a match from the lobby was to spin up a multiplayer room and wait
+  // for an opponent, so picking a deck here had no effect on AI battles.
+  const handlePlayVsAI = (selectedMode) => {
+    persistName().catch(() => {});
+    const params = new URLSearchParams();
+    params.set("mode", selectedMode);
+    params.set("ai", "true");
+    if (selectedDeckId && selectedDeckId !== AUTO_DECK_ID) {
+      params.set("deckId", selectedDeckId);
+    }
+    navigate(`/battle?${params.toString()}`);
   };
 
   const handleJoin = async (code) => {
@@ -408,7 +436,7 @@ export default function Lobby() {
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => navigate(`/battle?ai=true&mode=${mode}`)}
+                  onClick={() => handlePlayVsAI(mode)}
                   className="font-body gap-2"
                 >
                   <Star className="w-4 h-4" />

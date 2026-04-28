@@ -622,6 +622,10 @@ export default function Battle() {
   const playerSide = urlParams.get("player") || "player1";
   const isAI = urlParams.get("ai") === "true";
   const mode = urlParams.get("mode") || "unlimited";
+  // When the lobby's deck picker is honored we navigate here with ?deckId=...
+  // so the AI match uses the player's chosen deck instead of a generic
+  // starter. Falls back to the starter when the deck can't be found.
+  const playerDeckId = urlParams.get("deckId");
 
   const [loading, setLoading] = useState(true);
   const [roomData, setRoomData] = useState(null);
@@ -736,8 +740,18 @@ export default function Battle() {
           // to the curated pool when the registry is sparse.
           const personalities = ["aggressive", "balanced", "stall"];
           const personality = personalities[Math.floor(Math.random() * personalities.length)];
+          // Honor the deck the player picked in the lobby (?deckId=...).
+          // If the deck can't be loaded for any reason, fall back to the
+          // curated starter deck so the match still seeds.
+          let playerDeckCardIds = null;
+          if (playerDeckId) {
+            try {
+              const savedDeck = await db.entities.Deck.get(playerDeckId);
+              if (savedDeck?.card_ids?.length) playerDeckCardIds = savedDeck.card_ids;
+            } catch { /* fall through to starter */ }
+          }
           const [p1Def, p2Def] = await Promise.all([
-            buildPlayerDef(localUser.full_name || "Trainer", buildStarterDeck()),
+            buildPlayerDef(localUser.full_name || "Trainer", playerDeckCardIds || buildStarterDeck()),
             buildPlayerDef(AI_NAME, buildAIDeck(personality)),
           ]);
           const gs = createGameState(p1Def, p2Def, mode);
@@ -796,7 +810,7 @@ export default function Battle() {
     };
     init();
     return () => { active = false; if (typeof unsubscribe === "function") unsubscribe(); };
-  }, [isAI, roomId, playerSide, mode, seedRoomGameState]);
+  }, [isAI, roomId, playerSide, mode, seedRoomGameState, playerDeckId]);
 
   // Auto-set active Pokémon from setup phase
   useEffect(() => {

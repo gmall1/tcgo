@@ -216,9 +216,9 @@ export function buildStarterDeck() {
 const ENERGIES_CACHE_KEY = "local_tcg_live_energies_v1";
 const TRAINERS_CACHE_KEY = "local_tcg_live_trainers_v1";
 
-async function fetchGlobalByType({ query, cacheKey, pageSize = 120, ttl = 1000 * 60 * 60 * 6 }) {
+async function fetchGlobalByType({ query, cacheKey, pageSize = 120, ttl = 1000 * 60 * 60 * 6, localFallback = [] }) {
   const cached = readCache(cacheKey);
-  if (cached) {
+  if (cached && cached.length > 0) {
     registerCatalogCards(cached);
     return cached;
   }
@@ -226,11 +226,18 @@ async function fetchGlobalByType({ query, cacheKey, pageSize = 120, ttl = 1000 *
   try {
     const result = await searchCards(query, 1, pageSize);
     const normalized = (result?.cards || []).map(normalizeApiCardToCatalog);
+    if (normalized.length === 0) {
+      // API responded but with nothing useful — surface the bundled
+      // fallbacks so the rails are never empty.
+      return localFallback;
+    }
     registerCatalogCards(normalized);
     writeCache(cacheKey, normalized, ttl);
     return normalized;
   } catch {
-    return [];
+    // Surface the curated local catalog so the rails stay populated when
+    // the API is down or rate-limited. The cards are already registered.
+    return localFallback;
   }
 }
 
@@ -244,6 +251,7 @@ export async function fetchAllEnergiesCached() {
     query: "supertype:Energy subtypes:Basic",
     cacheKey: ENERGIES_CACHE_KEY,
     pageSize: 30,
+    localFallback: getEnergyCards(),
   });
 }
 
@@ -257,6 +265,7 @@ export async function fetchAllTrainersCached() {
     query: "supertype:Trainer",
     cacheKey: TRAINERS_CACHE_KEY,
     pageSize: 120,
+    localFallback: getTrainerCards(),
   });
 }
 
@@ -355,7 +364,14 @@ export async function fetchCatalogCards({ search = "", filter = "all", setId = "
 
     return writeCache(cacheKey, payload, 1000 * 60 * 30);
   } catch {
-    const localCards = filterLocalCards({ search, filter, setId });
+    // The API call failed (rate limit, offline, CORS). Fall back to the
+    // bundled local catalog. We deliberately drop `setId` here when it
+    // looks like a remote set id (e.g. "sv8") because none of the local
+    // cards belong to remote sets, and filtering on it would leave the
+    // user staring at an empty grid. The local catalog is small but at
+    // least keeps the deck builder usable while the API recovers.
+    const localSetId = setId === "local-demo" ? setId : "";
+    const localCards = filterLocalCards({ search, filter, setId: localSetId });
     registerCatalogCards(localCards);
     return {
       cards: localCards.slice(0, pageSize),
