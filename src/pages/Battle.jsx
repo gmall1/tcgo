@@ -121,8 +121,12 @@ function normalizeEngineCard(c) {
     attacks,
     // `calcDamage` in gameEngine checks `value.startsWith("×")` (U+00D7, Unicode
     // multiplication sign) — NOT ASCII 'x'. Use the Unicode form so starter-deck
-    // weakness actually multiplies damage.
-    weaknesses: c.weaknesses || (c.weakness && c.weakness !== "none" ? [{ type: c.weakness, value: "\u00d72" }] : []),
+    // weakness actually multiplies damage. The `type` string also has to match
+    // the capitalised `def.types[]` produced by `mkPokemon` (e.g. "Fire", not
+    // "fire"); `Array#includes` in `calcDamage` is case-sensitive.
+    weaknesses: c.weaknesses || (c.weakness && c.weakness !== "none"
+      ? [{ type: String(c.weakness).charAt(0).toUpperCase() + String(c.weakness).slice(1), value: "\u00d72" }]
+      : []),
     resistances: c.resistances || [],
     convertedRetreatCost: Number(retreat) || 0,
     rules,
