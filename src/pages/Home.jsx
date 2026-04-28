@@ -1,7 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { Swords, Layers, FolderOpen, Zap, Users, Shield, RotateCcw, Coins } from "lucide-react";
+import { Swords, Layers, FolderOpen, Zap, Users, Shield, RotateCcw, Coins, Wrench, Cpu } from "lucide-react";
 import BottomNav from "@/components/tcg/BottomNav";
 import CardFlowBackground from "@/components/home/CardFlowBackground";
 
@@ -73,6 +73,29 @@ export default function Home() {
             {[
               { to: "/decks", Icon: FolderOpen, label: "My Decks", sub: "Build and manage" },
               { to: "/collection", Icon: Layers, label: "Card Dex", sub: "Browse all cards" },
+            ].map(({ to, Icon, label, sub }) => (
+              <Link key={to} to={to}>
+                <div className="bg-card border border-border rounded-xl p-4 flex items-center gap-3 hover:bg-secondary/60 transition-colors">
+                  <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
+                    <Icon className="w-4 h-4 text-foreground/70" />
+                  </div>
+                  <div>
+                    <p className="font-body font-semibold text-sm">{label}</p>
+                    <p className="text-muted-foreground text-[11px] font-body">{sub}</p>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* Tools */}
+        <div>
+          <p className="font-display text-[11px] text-muted-foreground font-bold uppercase tracking-[0.15em] mb-3">Tools</p>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { to: "/mechanic-builder", Icon: Wrench, label: "Mechanic Builder", sub: "Wire effects card-by-card" },
+              { to: "/mechanic-studio", Icon: Cpu, label: "Mechanic Studio", sub: "Author + validate logic" },
             ].map(({ to, Icon, label, sub }) => (
               <Link key={to} to={to}>
                 <div className="bg-card border border-border rounded-xl p-4 flex items-center gap-3 hover:bg-secondary/60 transition-colors">

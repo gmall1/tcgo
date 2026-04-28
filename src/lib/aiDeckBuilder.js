@@ -95,32 +95,47 @@ function dominantType(pokemon) {
   return best;
 }
 
+// Pick N items from `arr` without replacement. We shuffle a copy with the
+// Fisher-Yates algorithm so the deck doesn't pull the same first-five
+// Pokémon every match — crucial for the AI feeling distinct per match.
+function pickRandom(arr, n) {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, n);
+}
+
 export function buildBalancedDeck() {
-  const pokemon = getPokemonCards().slice(0, 5);
+  const pool = getPokemonCards();
+  if (!pool.length) return HARDCODED_AI_DECK.slice();
+  // Pick a random type focus, then 5 distinct Pokémon weighted toward that
+  // type so the deck reads as "themed" rather than a random soup.
+  const types = Array.from(new Set(pool.map((c) => c.energy_type).filter(Boolean)));
+  const focusType = types.length ? types[Math.floor(Math.random() * types.length)] : null;
+  const focused = pool.filter((c) => c.energy_type === focusType);
+  const others = pool.filter((c) => c.energy_type !== focusType);
+  const pokemon = [
+    ...pickRandom(focused, Math.min(3, focused.length)),
+    ...pickRandom(others, 5),
+  ].slice(0, 5);
   return composeDeck({
-    pokemonPool: pokemon,
+    pokemonPool: pokemon.length ? pokemon : pickRandom(pool, 5),
     targetType: dominantType(pokemon),
   });
 }
 
 export function buildAggressiveDeck() {
-  // Prefer high-damage attackers. Use a generous threshold so the curated
-  // STARTER_POOL (Zapdos topping out at 60/100) still qualifies; if nothing
-  // clears the bar we sort by best attack instead of returning an empty
-  // slate that forces the fallback.
   const pool = getPokemonCards();
-  let pokemon = pool
-    .filter((c) => (c.attack1_damage || 0) >= 50 || (c.attack2_damage || 0) >= 80)
-    .slice(0, 5);
-  if (pokemon.length < 3) {
-    pokemon = [...pool]
-      .sort((a, b) => {
-        const ad = Math.max(a.attack1_damage || 0, a.attack2_damage || 0);
-        const bd = Math.max(b.attack1_damage || 0, b.attack2_damage || 0);
-        return bd - ad;
-      })
-      .slice(0, 5);
-  }
+  if (!pool.length) return HARDCODED_AI_DECK.slice();
+  // Hitters first, then random pick from the top 12 so we still get variety.
+  const hitters = [...pool].sort((a, b) => {
+    const ad = Math.max(a.attack1_damage || 0, a.attack2_damage || 0);
+    const bd = Math.max(b.attack1_damage || 0, b.attack2_damage || 0);
+    return bd - ad;
+  }).slice(0, 12);
+  const pokemon = pickRandom(hitters, 5);
   return composeDeck({
     pokemonPool: pokemon,
     targetType: dominantType(pokemon),
@@ -131,9 +146,11 @@ export function buildAggressiveDeck() {
 
 export function buildStallDeck() {
   const pool = getPokemonCards();
-  const pokemon = [...pool]
-    .sort((a, b) => (b.hp || 0) - (a.hp || 0))
-    .slice(0, 5);
+  if (!pool.length) return HARDCODED_AI_DECK.slice();
+  // Tanks first (top 12 by HP), then random pick of 5 so two consecutive
+  // stall matches don't bring the same wall every time.
+  const tanks = [...pool].sort((a, b) => (b.hp || 0) - (a.hp || 0)).slice(0, 12);
+  const pokemon = pickRandom(tanks, 5);
   return composeDeck({
     pokemonPool: pokemon,
     targetType: dominantType(pokemon),

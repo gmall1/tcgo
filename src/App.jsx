@@ -21,6 +21,8 @@ import PackShop from "@/pages/PackShop";
 import BattlePass from "@/pages/BattlePass";
 import Premium from "@/pages/Premium";
 import MechanicStudio from "@/pages/MechanicStudio";
+import MechanicBuilder from "@/pages/MechanicBuilder";
+import { registerAllSavedCardMechanics } from "@/lib/cardMechanicConfigs";
 
 function AppRoutes() {
   return (
@@ -40,6 +42,7 @@ function AppRoutes() {
       <Route path="/battle-pass" element={<BattlePass />} />
       <Route path="/premium" element={<Premium />} />
       <Route path="/mechanic-studio" element={<MechanicStudio />} />
+      <Route path="/mechanic-builder" element={<MechanicBuilder />} />
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );
@@ -49,6 +52,12 @@ try {
   seedPremadeDecks();
 } catch (err) {
   console.warn("Failed to seed premade decks", err);
+}
+
+try {
+  registerAllSavedCardMechanics();
+} catch (err) {
+  console.warn("Failed to register saved card mechanics", err);
 }
 
 export default function App() {

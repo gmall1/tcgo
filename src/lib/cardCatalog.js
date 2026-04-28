@@ -1,6 +1,6 @@
 import { STARTER_POOL, AI_DEFAULT_DECK_IDS, TYPE_COLORS } from "@/lib/cardData";
 import { fetchCard, fetchCardsByIds, fetchSets, searchCards } from "@/lib/pokemonTCGApi";
-import { inferMechanicsFromAttackText } from "@/lib/customMechanics";
+import { injectCustomMechanicsForAttack } from "@/lib/cardMechanicConfigs";
 
 export { AI_DEFAULT_DECK_IDS };
 
@@ -68,24 +68,21 @@ function normalizeLocalCard(card, index) {
   };
 }
 
-function enrichAttacksWithMechanics(rawAttacks) {
+// Engine `resolveAttackText` (in gameEngine.js) is the source of truth for
+// auto-resolving rules text on API-imported cards (heal, draw, status, coin
+// flip, bench spread, etc.). We deliberately do NOT auto-tag attacks with
+// `custom_mechanics` here — doing so caused effects to fire twice (once in
+// the resolver and once by the mechanic dispatch). Explicit `custom_mechanics`
+// can still be set by the Mechanic Studio when authoring brand-new effects.
+function enrichAttacksWithMechanics(rawAttacks, cardId, cardName) {
   if (!Array.isArray(rawAttacks)) return [];
-  return rawAttacks.map((atk) => {
-    if (!atk) return atk;
-    const mechanics = inferMechanicsFromAttackText(atk.text || "");
-    if (!mechanics.length) return atk;
-    const existing = Array.isArray(atk.custom_mechanics) ? atk.custom_mechanics : [];
-    return {
-      ...atk,
-      custom_mechanics: [...existing, ...mechanics],
-    };
-  });
+  return rawAttacks.map((a) => injectCustomMechanicsForAttack(cardId, cardName, a));
 }
 
 export function normalizeApiCardToCatalog(card) {
   const cardType = card.supertype === "Pokémon" ? "pokemon" : String(card.supertype || "").toLowerCase();
   const primaryType = card.types?.[0] || null;
-  const enrichedAttacks = enrichAttacksWithMechanics(card.attacks);
+  const enrichedAttacks = enrichAttacksWithMechanics(card.attacks, card.id, card.name);
   const firstAttack = enrichedAttacks[0] || null;
   const secondAttack = enrichedAttacks[1] || null;
   const description =
@@ -218,7 +215,61 @@ export function buildStarterDeck() {
 }
 
 const ENERGIES_CACHE_KEY = "local_tcg_live_energies_v1";
+const SPECIAL_ENERGIES_CACHE_KEY = "local_tcg_live_special_energies_v1";
 const TRAINERS_CACHE_KEY = "local_tcg_live_trainers_v1";
+
+// A Special Energy is anything in supertype:Energy whose subtype isn't `Basic`.
+// Detect via the registry's stored `rarity` / `subtypes` shape (we store the
+// upstream `subtypes` array on energy cards) plus a name-based heuristic for
+// canonical staples (DCE, Rainbow, etc.) so the UI works even before the
+// network fetch resolves.
+// Name fragments that uniquely identify Special energies. The single-word
+// type names (Darkness, Metal, Fairy, …) deliberately are NOT in this list
+// because they collide with the basic energies of those types — Special
+// printings always layer extra wording in the printed name (Special Metal
+// Energy, Twin Energy, Rainbow Energy, …) or carry an explicit
+// `subtypes:["Special"]` upstream.
+const SPECIAL_ENERGY_NAME_HINTS = [
+  "double colorless",
+  "rainbow",
+  "double dragon",
+  "rescue",
+  "scramble",
+  "boost",
+  "warp",
+  "recycle",
+  "memory",
+  "powerful",
+  "twin",
+  "special",
+];
+const BASIC_ENERGY_EXACT_NAMES = new Set([
+  "fire energy", "water energy", "grass energy", "lightning energy",
+  "psychic energy", "fighting energy", "darkness energy", "metal energy",
+  "fairy energy", "dragon energy",
+]);
+function isSpecialEnergy(card) {
+  if (!card || card.card_type !== "energy") return false;
+  const name = String(card.name || "").toLowerCase().trim();
+  const subtypes = Array.isArray(card.subtypes) ? card.subtypes.map((s) => String(s).toLowerCase()) : [];
+  // Authoritative basic short-circuit: subtype `Basic` or an exact basic
+  // energy name beats every heuristic below — basic Darkness/Metal/etc.
+  // were misclassified before this check existed.
+  if (subtypes.includes("basic")) return false;
+  if (BASIC_ENERGY_EXACT_NAMES.has(name)) return false;
+  if (subtypes.includes("special")) return true;
+  if (subtypes.length && !subtypes.includes("basic")) return true;
+  if (SPECIAL_ENERGY_NAME_HINTS.some((hint) => name.includes(hint))) return true;
+  if (card.is_special_energy) return true;
+  return false;
+}
+export function getBasicEnergyCards() {
+  return getEnergyCards().filter((c) => !isSpecialEnergy(c));
+}
+export function getSpecialEnergyCards() {
+  return getEnergyCards().filter(isSpecialEnergy);
+}
+export { isSpecialEnergy };
 
 async function fetchGlobalByType({ query, cacheKey, pageSize = 120, ttl = 1000 * 60 * 60 * 6, localFallback = [] }) {
   const cached = readCache(cacheKey);
@@ -255,7 +306,21 @@ export async function fetchAllEnergiesCached() {
     query: "supertype:Energy subtypes:Basic",
     cacheKey: ENERGIES_CACHE_KEY,
     pageSize: 30,
-    localFallback: getEnergyCards(),
+    localFallback: getBasicEnergyCards(),
+  });
+}
+
+/**
+ * Fetch a broad selection of Special Energy cards (DCE, Rainbow, etc.) so
+ * they can sit alongside Basic Energy in the deck-builder's pinned rail.
+ * Cached for 6h so we don't hammer the API every page load.
+ */
+export async function fetchAllSpecialEnergiesCached() {
+  return fetchGlobalByType({
+    query: "supertype:Energy -subtypes:Basic",
+    cacheKey: SPECIAL_ENERGIES_CACHE_KEY,
+    pageSize: 80,
+    localFallback: getSpecialEnergyCards(),
   });
 }
 

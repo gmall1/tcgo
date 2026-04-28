@@ -12,7 +12,9 @@ import db from "@/lib/localDb";
 import {
   buildStarterDeck,
   fetchAllEnergiesCached,
+  fetchAllSpecialEnergiesCached,
   fetchAllTrainersCached,
+  isSpecialEnergy,
   fetchCatalogCards,
   fetchExpansionSetsCached,
   getCardById,
@@ -241,6 +243,14 @@ export default function DeckBuilder() {
     staleTime: 1000 * 60 * 60,
   });
 
+  // Special energies (DCE, Rainbow, etc.) live alongside Basic energies in
+  // the pinned rail so users don't have to hunt across expansions for them.
+  const { data: allSpecialEnergies = [] } = useQuery({
+    queryKey: ["all-special-energies"],
+    queryFn: () => fetchAllSpecialEnergiesCached(),
+    staleTime: 1000 * 60 * 60,
+  });
+
   const { data: allTrainers = [] } = useQuery({
     queryKey: ["all-trainers"],
     queryFn: () => fetchAllTrainersCached(),
@@ -316,8 +326,18 @@ export default function DeckBuilder() {
     return [...base].sort(byNumber);
   }, [cardResults, typeFilter, filter, search]);
 
+  // Pinned rail: basic energies + special energies (DCE, Rainbow, etc.),
+  // dedup'd by id. Returns `{ basics, specials, total }` so the UI can
+  // render the two groups under sub-headers without doing extra filtering.
   const railEnergies = useMemo(() => {
-    let base = allEnergies.slice();
+    const seen = new Set();
+    const merged = [];
+    for (const c of [...allEnergies, ...allSpecialEnergies]) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      merged.push(c);
+    }
+    let base = merged;
     if (scopeEnergyToSet && selectedSet) {
       base = base.filter((c) => c.set_id === selectedSet);
     }
@@ -325,8 +345,10 @@ export default function DeckBuilder() {
       const q = search.toLowerCase();
       base = base.filter((c) => (c.name || "").toLowerCase().includes(q));
     }
-    return base.sort(byName);
-  }, [allEnergies, scopeEnergyToSet, selectedSet, search]);
+    const basics = base.filter((c) => !isSpecialEnergy(c)).sort(byName);
+    const specials = base.filter(isSpecialEnergy).sort(byName);
+    return { basics, specials, total: basics.length + specials.length };
+  }, [allEnergies, allSpecialEnergies, scopeEnergyToSet, selectedSet, search]);
 
   const railTrainers = useMemo(() => {
     let base = allTrainers.slice();
@@ -492,31 +514,72 @@ export default function DeckBuilder() {
           <RailSection
             title="Energies"
             subtitle={scopeEnergyToSet ? `${activeSet?.name || "This set"} only` : "All sets"}
-            count={railEnergies.length}
+            count={railEnergies.total}
             expanded={energyExpanded}
             onToggleExpanded={() => setEnergyExpanded((v) => !v)}
             scoped={scopeEnergyToSet}
             onToggleScope={() => setScopeEnergyToSet((v) => !v)}
             canScope={Boolean(selectedSet)}
           >
-            {railEnergies.length === 0 ? (
+            {railEnergies.total === 0 ? (
               <p className="text-xs font-body text-muted-foreground p-3">
                 No energies loaded yet. {scopeEnergyToSet ? "Try disabling the set filter." : "Check your connection."}
               </p>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8 gap-3">
-                <AnimatePresence mode="popLayout">
-                  {railEnergies.map((card) => (
-                    <CardTile
-                      key={card.id}
-                      card={card}
-                      inDeck={deckCounts[card.id] || 0}
-                      onAdd={addCard}
-                      onRemove={removeCard}
-                      disabled={false}
-                    />
-                  ))}
-                </AnimatePresence>
+              <div className="space-y-4">
+                {railEnergies.basics.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[11px] font-display tracking-wider uppercase text-muted-foreground">
+                        Basic
+                      </span>
+                      <span className="text-[10px] font-mono text-muted-foreground">
+                        {railEnergies.basics.length}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8 gap-3">
+                      <AnimatePresence mode="popLayout">
+                        {railEnergies.basics.map((card) => (
+                          <CardTile
+                            key={card.id}
+                            card={card}
+                            inDeck={deckCounts[card.id] || 0}
+                            onAdd={addCard}
+                            onRemove={removeCard}
+                            disabled={false}
+                          />
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+                )}
+
+                {railEnergies.specials.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[11px] font-display tracking-wider uppercase text-primary">
+                        Special
+                      </span>
+                      <span className="text-[10px] font-mono text-muted-foreground">
+                        {railEnergies.specials.length}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8 gap-3">
+                      <AnimatePresence mode="popLayout">
+                        {railEnergies.specials.map((card) => (
+                          <CardTile
+                            key={card.id}
+                            card={card}
+                            inDeck={deckCounts[card.id] || 0}
+                            onAdd={addCard}
+                            onRemove={removeCard}
+                            disabled={false}
+                          />
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </RailSection>

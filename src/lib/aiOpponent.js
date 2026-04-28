@@ -6,6 +6,7 @@ import {
   attachEnergy,
   canAffordAttack,
   endTurn,
+  evolvePokemon,
   getOpponentKey,
   performAttack,
   playBasicToBench,
@@ -79,19 +80,85 @@ function chooseBestPromotion(bench) {
   });
 }
 
-function chooseEnergyTarget(ai) {
-  const active = ai.activePokemon;
-  if (active) {
-    const attacks = active.def?.attacks || [];
-    for (const atk of attacks) {
-      const needed = atk.cost?.length || 0;
-      const have = active.energyAttached.length;
-      if (needed > 0 && have < needed) return active.instanceId;
+// Given a list of energy cards in hand and the AI's mons, pick the
+// energy / target pair that most efficiently powers a missing attack.
+// Returns { energyId, targetId } or null. We prefer attaching typed energy
+// onto a Pokémon whose next-attack cost still needs that exact type, then
+// fall back to the Active.
+function chooseEnergyAttach(ai) {
+  const energies = ai.hand.filter((c) => c.def?.supertype === "Energy");
+  if (!energies.length) return null;
+  const candidates = [ai.activePokemon, ...ai.bench].filter(Boolean);
+
+  function neededTypes(mon) {
+    const counts = {};
+    const attached = mon.energyAttached || [];
+    for (const e of attached) {
+      const n = (e.def?.name || "").toLowerCase();
+      const t = n.includes("fire") ? "Fire"
+        : n.includes("water") ? "Water"
+        : n.includes("grass") ? "Grass"
+        : n.includes("lightning") || n.includes("electric") ? "Lightning"
+        : n.includes("psychic") ? "Psychic"
+        : n.includes("fighting") ? "Fighting"
+        : n.includes("dark") ? "Darkness"
+        : n.includes("metal") || n.includes("steel") ? "Metal"
+        : n.includes("dragon") ? "Dragon"
+        : n.includes("fairy") ? "Fairy"
+        : "Colorless";
+      counts[t] = (counts[t] || 0) + 1;
+    }
+    const out = {};
+    for (const atk of (mon.def?.attacks || [])) {
+      for (const c of (atk.cost || [])) {
+        if (c === "Colorless") continue;
+        out[c] = Math.max(out[c] || 0, (atk.cost.filter((x) => x === c).length) - (counts[c] || 0));
+      }
+    }
+    return out;
+  }
+
+  // Try to satisfy a typed cost first.
+  for (const e of energies) {
+    const en = (e.def?.name || "").toLowerCase();
+    const provides = en.includes("fire") ? "Fire"
+      : en.includes("water") ? "Water"
+      : en.includes("grass") ? "Grass"
+      : en.includes("lightning") || en.includes("electric") ? "Lightning"
+      : en.includes("psychic") ? "Psychic"
+      : en.includes("fighting") ? "Fighting"
+      : en.includes("dark") ? "Darkness"
+      : en.includes("metal") || en.includes("steel") ? "Metal"
+      : en.includes("dragon") ? "Dragon"
+      : en.includes("fairy") ? "Fairy"
+      : null;
+    if (!provides) continue;
+    for (const m of candidates) {
+      const need = neededTypes(m);
+      if ((need[provides] || 0) > 0) {
+        return { energyId: e.instanceId, targetId: m.instanceId };
+      }
     }
   }
-  const benchWithEnergy = [...ai.bench].sort((a, b) => b.energyAttached.length - a.energyAttached.length);
-  if (benchWithEnergy.length > 0) return benchWithEnergy[0].instanceId;
-  return active?.instanceId || null;
+
+  // Otherwise dump the energy on whichever mon has an unmet attack cost,
+  // preferring the Active so we can swing this turn.
+  for (const m of candidates) {
+    const attacks = m.def?.attacks || [];
+    for (const atk of attacks) {
+      if ((m.energyAttached?.length || 0) < (atk.cost?.length || 0)) {
+        return { energyId: energies[0].instanceId, targetId: m.instanceId };
+      }
+    }
+  }
+
+  // Final fallback: attach to whoever has the most energy already (build
+  // up a finisher on the bench).
+  const target = [...ai.bench].sort((a, b) => (b.energyAttached?.length || 0) - (a.energyAttached?.length || 0))[0]
+    || ai.activePokemon
+    || null;
+  if (!target) return null;
+  return { energyId: energies[0].instanceId, targetId: target.instanceId };
 }
 
 function shouldRetreat(ai, personality) {
@@ -129,6 +196,33 @@ export function performAITurn(gs) {
     }
   }
 
+  // 2.5. Evolve any pre-evolution we have an Active or Bench copy of.
+  // We loop because evolving can unlock a Stage-2 we also have in hand
+  // (e.g. Charmander → Charmeleon → Charizard via Rare Candy isn't supported,
+  // but Stage 1 → Stage 2 the same turn is fine as long as the engine allows
+  // it). evolvePokemon handles the "played this turn" guard for us.
+  let evolvedAtLeastOne = true;
+  while (evolvedAtLeastOne) {
+    evolvedAtLeastOne = false;
+    const evolutions = ai.hand.filter(
+      (c) => c.def?.supertype === "Pokémon" && c.def?.evolvesFrom,
+    );
+    for (const evo of evolutions) {
+      const targets = [
+        ai.activePokemon,
+        ...ai.bench,
+      ].filter((t) => t && t.def?.name === evo.def.evolvesFrom);
+      const target = targets.sort((a, b) => (b.energyAttached?.length || 0) - (a.energyAttached?.length || 0))[0];
+      if (!target) continue;
+      const next = evolvePokemon(state, aiKey, evo.instanceId, target.instanceId);
+      if (next._error) continue;
+      state = next;
+      ai = state[aiKey];
+      evolvedAtLeastOne = true;
+      break;
+    }
+  }
+
   // 3. Play supporters
   if (!ai.supporterPlayedThisTurn) {
     const supporters = ai.hand.filter(c => c.def?.isSupporter);
@@ -162,12 +256,13 @@ export function performAITurn(gs) {
     }
   }
 
-  // 5. Attach energy
-  const energyInHand = ai.hand.filter(c => c.def?.supertype === "Energy");
-  if (energyInHand.length > 0 && !ai.energyAttachedThisTurn) {
-    const targetId = chooseEnergyTarget(ai);
-    if (targetId) {
-      state = attachEnergy(state, aiKey, energyInHand[0].instanceId, targetId);
+  // 5. Attach energy — prefer typed energies onto Pokémon that still need
+  // that exact type. chooseEnergyAttach falls through to the Active so we
+  // never skip an attach turn when there's an obvious slot.
+  if (!ai.energyAttachedThisTurn) {
+    const choice = chooseEnergyAttach(ai);
+    if (choice) {
+      state = attachEnergy(state, aiKey, choice.energyId, choice.targetId);
       ai = state[aiKey];
     }
   }
@@ -202,11 +297,37 @@ export function performAITurn(gs) {
     });
     if (bestIdx >= 0) {
       state = performAttack(state, bestIdx);
+      // Prompt-driven attacks (Birthday / Unown / RPS) short-circuit
+      // performAttack and surface a `pendingAttack` instead of resolving.
+      // For the AI, auto-answer the prompt and resume.
+      if (state.pendingAttack) {
+        const answer = autoAnswerPrompt(state.pendingAttack, state[oppKey]?.activePokemon);
+        state = performAttack(state, state.pendingAttack.attackIndex, { promptAnswer: answer });
+      }
       return state;
     }
   }
 
   return endTurn(state);
+}
+
+// Provide a sensible default answer for prompt-driven attacks when the
+// AI is the attacker. Birthday: pretend it IS the AI's birthday so the
+// attack hits. Height-guess: guess the defender's actual height ±0.2m.
+// RPS: random throw, no peeking at the opponent's choice.
+function autoAnswerPrompt(pending, defender) {
+  const kind = pending?.prompt?.kind;
+  if (kind === "birthday") return { isBirthday: true };
+  if (kind === "height-guess") {
+    const target = defender?.def?.height_m ?? pending.defenderHeight ?? 1.0;
+    const jitter = (Math.random() - 0.5) * 0.4;
+    return { guess: Math.max(0.1, Number(target) + jitter) };
+  }
+  if (kind === "rps") {
+    const choices = ["rock", "paper", "scissors"];
+    return { choice: choices[Math.floor(Math.random() * 3)] };
+  }
+  return {};
 }
 
 export function getAICommentary(isKO, hasStatus, cardName) {
