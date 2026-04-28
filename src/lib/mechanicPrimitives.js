@@ -496,17 +496,23 @@ export const GUARDS = [
     id: "if_per_turn",
     label: "Cap N times per turn",
     params: [{ key: "count", type: PARAM_TYPES.number, default: 1, min: 1 }],
+    // Pure check — no state mutation. The runtime calls `commit` only after
+    // ALL guards pass and the primitive successfully runs, so a later guard
+    // failing or the primitive throwing won't burn a charge.
     evaluate: (s, pk, p, ctx) => {
+      const key = `${ctx.cardId}:${ctx.attackName}:per_turn`;
+      const turn = s.turn || 0;
+      const entry = s._mechanicCounters?.[key] || { turn: -1, n: 0 };
+      const used = entry.turn === turn ? entry.n : 0;
+      return used < Number(p.count || 1);
+    },
+    commit: (s, pk, p, ctx) => {
       const key = `${ctx.cardId}:${ctx.attackName}:per_turn`;
       const turn = s.turn || 0;
       s._mechanicCounters = s._mechanicCounters || {};
       const entry = s._mechanicCounters[key] || { turn: -1, n: 0 };
       const used = entry.turn === turn ? entry.n : 0;
-      const ok = used < Number(p.count || 1);
-      if (ok) {
-        s._mechanicCounters[key] = { turn, n: used + 1 };
-      }
-      return ok;
+      s._mechanicCounters[key] = { turn, n: used + 1 };
     },
   },
 ];
@@ -520,17 +526,31 @@ export function runMechanicConfig(state, pk, config, ctx = {}) {
     const prim = PRIMITIVES.find((p) => p.id === entry.id);
     if (!prim) continue;
     const guards = entry.guards || [];
-    const allow = guards.every((g) => {
-      const guardDef = GUARDS.find((G) => G.id === g.id);
-      if (!guardDef) return true;
-      try { return Boolean(guardDef.evaluate(s, pk, g.params || {}, ctx2)); }
+    const guardEntries = guards
+      .map((g) => ({ entry: g, def: GUARDS.find((G) => G.id === g.id) }))
+      .filter((x) => x.def);
+    const allow = guardEntries.every(({ entry: g, def }) => {
+      try { return Boolean(def.evaluate(s, pk, g.params || {}, ctx2)); }
       catch { return false; }
     });
     if (!allow) continue;
+    let ranOk = false;
     try {
       s = prim.run(s, pk, entry.params || {}, ctx2) || s;
+      ranOk = true;
     } catch (err) {
       pushLog(s, `Mechanic "${prim.label}" failed: ${err.message}`);
+    }
+    // Commit any guards that have a post-run side effect (e.g. if_per_turn
+    // bumps the per-turn counter) only after the primitive itself ran. This
+    // guarantees a charge is never consumed by a later guard's failure or
+    // by a primitive that threw.
+    if (ranOk) {
+      for (const { entry: g, def } of guardEntries) {
+        if (typeof def.commit !== "function") continue;
+        try { def.commit(s, pk, g.params || {}, ctx2); }
+        catch { /* swallow — commits are best-effort */ }
+      }
     }
   }
   state.bonusDamage = ctx2.bonusDamage; // surface so engine can read it

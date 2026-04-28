@@ -223,30 +223,43 @@ const TRAINERS_CACHE_KEY = "local_tcg_live_trainers_v1";
 // upstream `subtypes` array on energy cards) plus a name-based heuristic for
 // canonical staples (DCE, Rainbow, etc.) so the UI works even before the
 // network fetch resolves.
+// Name fragments that uniquely identify Special energies. The single-word
+// type names (Darkness, Metal, Fairy, …) deliberately are NOT in this list
+// because they collide with the basic energies of those types — Special
+// printings always layer extra wording in the printed name (Special Metal
+// Energy, Twin Energy, Rainbow Energy, …) or carry an explicit
+// `subtypes:["Special"]` upstream.
 const SPECIAL_ENERGY_NAME_HINTS = [
   "double colorless",
   "rainbow",
   "double dragon",
   "rescue",
-  "metal energy", // some printings of Metal exist as Special variants
-  "darkness energy",
   "scramble",
   "boost",
   "warp",
   "recycle",
-  "potion",
   "memory",
   "powerful",
   "twin",
+  "special",
 ];
+const BASIC_ENERGY_EXACT_NAMES = new Set([
+  "fire energy", "water energy", "grass energy", "lightning energy",
+  "psychic energy", "fighting energy", "darkness energy", "metal energy",
+  "fairy energy", "dragon energy",
+]);
 function isSpecialEnergy(card) {
   if (!card || card.card_type !== "energy") return false;
+  const name = String(card.name || "").toLowerCase().trim();
   const subtypes = Array.isArray(card.subtypes) ? card.subtypes.map((s) => String(s).toLowerCase()) : [];
+  // Authoritative basic short-circuit: subtype `Basic` or an exact basic
+  // energy name beats every heuristic below — basic Darkness/Metal/etc.
+  // were misclassified before this check existed.
+  if (subtypes.includes("basic")) return false;
+  if (BASIC_ENERGY_EXACT_NAMES.has(name)) return false;
   if (subtypes.includes("special")) return true;
   if (subtypes.length && !subtypes.includes("basic")) return true;
-  const name = String(card.name || "").toLowerCase();
   if (SPECIAL_ENERGY_NAME_HINTS.some((hint) => name.includes(hint))) return true;
-  // Some catalogs store an explicit `is_special` flag.
   if (card.is_special_energy) return true;
   return false;
 }
