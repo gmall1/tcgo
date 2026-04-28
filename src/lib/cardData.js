@@ -65,6 +65,11 @@ function buildCost(total, primaryType, explicit) {
   const n = Math.max(0, Number(total) || 0);
   const primary = ENERGY_TYPE_TO_ENGINE[String(primaryType || "").toLowerCase()] || "Colorless";
   if (primary === "Colorless") return Array(n).fill("Colorless");
+  // Free attacks (cost: 0) must remain free even when a typed primary is
+  // declared (e.g. Birthday Pikachu's "Birthday Surprise" reads cost: 0
+  // with energy_type: "lightning"). Without this, the [primary] seed
+  // below would mint a 1-energy cost out of thin air.
+  if (n === 0) return [];
   // First slot uses the native type (so the attack actually requires the
   // matching energy color). Remainder are Colorless so off-type energy can
   // top off costs — this matches how most early-era TCG attacks read.

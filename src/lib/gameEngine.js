@@ -1080,7 +1080,11 @@ function resolveAttackText(attack, attacker, defender, damage, ps, opp, log, gs)
 
   // "Foo does N damage to itself" — flat self-damage outside a coin flip
   // (Chansey Double-edge, Zapdos Thunderbolt-style discard, etc.).
-  if (!text.includes("flip a coin")) {
+  // Skip prompt-driven attacks (RPS, Birthday, height-guess) — those carry
+  // their own conditional self-damage in the prompt resolver, and the
+  // generic regex would mis-fire on conditional phrasing like
+  // "If you lose, Hitmontop does 20 damage to itself."
+  if (!text.includes("flip a coin") && !attack.prompt) {
     const m = text.match(/(\d+)\s*damage\s*to\s*itself/i);
     if (m) {
       const sd = Number(m[1]);
