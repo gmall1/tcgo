@@ -895,6 +895,17 @@ export function performAttack(gs, attackIndex, options = {}) {
     opp = mechGs[oppKey];
     // Refresh defender reference in case mechanic touched it
     newDefender = opp.activePokemon || newDefender;
+
+    // Apply any bonus damage accumulated by `deal_damage`-style primitives
+    // (mechanicPrimitives.js writes the running total to mechGs.bonusDamage
+    // via runMechanicConfig). Bonus damage is flat — base weakness /
+    // resistance was already resolved against the printed damage above.
+    const bonus = Number(mechGs.bonusDamage || 0);
+    if (bonus > 0 && !defenderProtected && newDefender) {
+      newDefender = { ...newDefender, damage: (newDefender.damage || 0) + bonus };
+      opp.activePokemon = newDefender;
+      newLog.push(`+${bonus} bonus damage applied.`);
+    }
   }
 
   // Prompt-driven self-damage (e.g. RPS lose case where the attacker
