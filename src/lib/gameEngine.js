@@ -234,9 +234,8 @@ export function checkWinConditions(gs) {
 }
 
 // ── Calculate damage with weakness / resistance ────────────
-export function calcDamage(attacker, defender, baseDamage) {
+export function calcDamage(attacker, defender, baseDamage, gs = null) {
   let dmg = baseDamage;
-  const defTypes = defender.def.types || [];
 
   // Weakness (usually ×2)
   const weaknesses = defender.def.weaknesses || [];
@@ -253,6 +252,15 @@ export function calcDamage(attacker, defender, baseDamage) {
     if (attacker.def.types?.includes(r.type)) {
       if (r.value.startsWith("-")) dmg -= parseInt(r.value.slice(1));
     }
+  }
+
+  // Per-defender damage-reduction shield set by an earlier attack
+  // (e.g. "any damage done to this Pokémon by attacks is reduced by 20").
+  // Honored only while the shield is still active relative to the current turn.
+  const turn = gs?.turn ?? 0;
+  if ((defender.damageReductionUntilTurn || 0) >= turn) {
+    const reduction = defender.damageReductionAmount || 0;
+    if (reduction > 0) dmg = Math.max(0, dmg - reduction);
   }
 
   return Math.max(0, dmg);
@@ -299,56 +307,100 @@ export function autoPromoteAll(gs) {
   };
 }
 
+// ── Energy semantics — basic vs special energy.
+// Special energies provide more than one Colorless or stand in for any type.
+// `provides` is a list of energy-type buckets the card contributes when paying
+// an attack cost. Buckets:
+//   • A specific basic type ("Fire", "Water", …) — counts toward that type AND
+//     toward Colorless. (Example: a Fire energy can pay 1 Fire OR 1 Colorless.)
+//   • "Colorless" — only pays Colorless cost.
+//   • "Rainbow" — counts as ANY type (basic + colorless). Bookkept as "Any"
+//     and resolved by the matcher below.
+function energyProvides(energyCard) {
+  if (!energyCard) return ["Colorless"];
+  const def = energyCard.def || energyCard;
+  const name = String(def.name || "").toLowerCase();
+  const subtypes = (def.subtypes || []).map((s) => String(s).toLowerCase());
+  const isSpecial = subtypes.includes("special") || (subtypes.length && !subtypes.includes("basic"));
+
+  // Rainbow / multi-type — counts as one of any type.
+  if (name.includes("rainbow")) return ["Any"];
+  // Double Colorless — pays 2 Colorless. Iconic Hitmonchan / Mr. Mime fuel.
+  if (name.includes("double colorless")) return ["Colorless", "Colorless"];
+  // Twin / Boost / Scramble / Powerful pays for an attack cost mix; we
+  // approximate as one of each major type so it can satisfy any single
+  // typed cost the attacker needs.
+  if (isSpecial && (name.includes("twin") || name.includes("scramble") || name.includes("boost"))) {
+    return ["Any"];
+  }
+
+  // Map by name to a single basic-energy type for everything else.
+  const map = [
+    ["fire", "Fire"], ["water", "Water"], ["grass", "Grass"],
+    ["lightning", "Lightning"], ["electric", "Lightning"],
+    ["psychic", "Psychic"], ["fighting", "Fighting"],
+    ["darkness", "Darkness"], ["dark", "Darkness"],
+    ["metal", "Metal"], ["steel", "Metal"],
+    ["dragon", "Dragon"], ["fairy", "Fairy"],
+  ];
+  for (const [token, t] of map) {
+    if (name.includes(token)) return [t];
+  }
+  return ["Colorless"];
+}
+
+function flattenProvides(attached) {
+  const out = [];
+  for (const e of attached || []) for (const t of energyProvides(e)) out.push(t);
+  return out;
+}
+
 // ── Count energy of a type attached ───────────────────────
 export function countEnergy(playCard, type = null) {
-  if (!type) return playCard.energyAttached.length;
-  // TODO: resolve special energy
-  return playCard.energyAttached.filter(e => {
-    if (!e) return false;
-    const eName = e.def?.name?.toLowerCase() || "";
-    if (type === "Colorless") return true;
-    return eName.includes(type.toLowerCase());
-  }).length;
+  const buckets = flattenProvides(playCard.energyAttached);
+  if (!type) return buckets.length;
+  if (type === "Colorless") return buckets.length; // anything pays Colorless
+  return buckets.filter((t) => t === type || t === "Any").length;
 }
 
 // ── Check if an attack's energy cost is met ───────────────
 export function canAffordAttack(attacker, attack) {
   const costMap = {};
-  for (const c of attack.cost) {
-    costMap[c] = (costMap[c] || 0) + 1;
-  }
-  const attachedTypes = attacker.energyAttached.map(e => {
-    const n = e.def?.name?.toLowerCase() || "";
-    if (n.includes("fire")) return "Fire";
-    if (n.includes("water")) return "Water";
-    if (n.includes("grass")) return "Grass";
-    if (n.includes("lightning") || n.includes("electric")) return "Lightning";
-    if (n.includes("psychic")) return "Psychic";
-    if (n.includes("fighting")) return "Fighting";
-    if (n.includes("darkness") || n.includes("dark")) return "Darkness";
-    if (n.includes("metal") || n.includes("steel")) return "Metal";
-    if (n.includes("dragon")) return "Dragon";
-    if (n.includes("fairy")) return "Fairy";
-    return "Colorless";
-  });
+  for (const c of attack.cost) costMap[c] = (costMap[c] || 0) + 1;
+  // Count buckets contributed by every attached card. Special energies expand
+  // into multiple buckets here (DCE → ["Colorless","Colorless"], Rainbow →
+  // ["Any"]) so the matcher below treats them correctly without per-card
+  // special-cases.
+  const buckets = flattenProvides(attacker.energyAttached);
+  const available = { Any: 0 };
+  for (const t of ENERGY_TYPES) available[t] = 0;
+  for (const t of buckets) available[t] = (available[t] || 0) + 1;
 
-  const available = { ...Object.fromEntries(ENERGY_TYPES.map(t => [t, 0])) };
-  for (const t of attachedTypes) available[t] = (available[t] || 0) + 1;
-
-  // Satisfy specific costs first
   const remaining = { ...costMap };
+  // Satisfy specific typed costs first (not Colorless).
   for (const type of ENERGY_TYPES) {
     if (type === "Colorless") continue;
-    const need = remaining[type] || 0;
-    const have = available[type] || 0;
-    const used = Math.min(need, have);
-    remaining[type] = need - used;
-    available[type] = have - used;
+    let need = remaining[type] || 0;
+    if (need <= 0) continue;
+    const direct = Math.min(need, available[type] || 0);
+    available[type] -= direct;
+    need -= direct;
+    if (need > 0 && (available.Any || 0) > 0) {
+      const fromAny = Math.min(need, available.Any);
+      available.Any -= fromAny;
+      need -= fromAny;
+    }
+    remaining[type] = need;
   }
-  // Colorless can be any
+  // Any leftover specific need can't be paid.
+  for (const type of ENERGY_TYPES) {
+    if (type === "Colorless") continue;
+    if ((remaining[type] || 0) > 0) return false;
+  }
+  // Colorless can be paid by anything left over.
   const colorlessNeed = remaining["Colorless"] || 0;
   const totalLeft = Object.values(available).reduce((a, b) => a + b, 0);
-  return colorlessNeed <= totalLeft && Object.values(remaining).filter(v => v > 0 && v !== remaining["Colorless"]).length === 0;
+  return colorlessNeed <= totalLeft;
 }
 
 // ── Between-turn special condition effects ─────────────────
@@ -734,7 +786,7 @@ export function performAttack(gs, attackIndex, options = {}) {
   // PlusPower / Defender-style stacked modifier applied by trainers earlier this turn.
   const preAttackBonus = attacker.damageBonusNextAttack || 0;
   baseDmg += preAttackBonus;
-  let finalDmg = calcDamage(attacker, defender, baseDmg);
+  let finalDmg = calcDamage(attacker, defender, baseDmg, gs);
 
   // Agility / "prevent all effects of attacks" flag on the defender — drops
   // damage and blocks status riders for the current turn.
@@ -1142,6 +1194,120 @@ function resolveAttackText(attack, attacker, defender, damage, ps, opp, log, gs)
       const n = parseInt(healMatch[1], 10) * (text.includes("damage counters") ? 10 : 1);
       attacker.damage = Math.max(0, attacker.damage - n);
       extraLog.push(`${attacker.def.name} healed ${n} damage.`);
+    }
+  }
+
+  // Heal each of your Pokémon — bench-wide heal (e.g. Blissey-style "heal
+  // 20 damage from each of your Pokémon").
+  const benchHealMatch = text.match(/heal\s*(\d+)\s*damage\s*from\s*each\s*of\s*your/);
+  if (benchHealMatch) {
+    const n = parseInt(benchHealMatch[1], 10);
+    if (ps.activePokemon) ps.activePokemon = { ...ps.activePokemon, damage: Math.max(0, (ps.activePokemon.damage || 0) - n) };
+    ps.bench = ps.bench.map((c) => ({ ...c, damage: Math.max(0, (c.damage || 0) - n) }));
+    extraLog.push(`${ps.name}'s Pokémon each healed ${n} damage.`);
+  }
+
+  // ── Snipe: deal damage to a Benched (or any non-Active) opponent Pokémon ─
+  // "Does N damage to 1 of your opponent's Pokémon" / "...to 1 of your
+  // opponent's Benched Pokémon". We pick the most-loaded benched threat
+  // (highest energy + remaining HP), which is what a sane player would do.
+  const snipeMatch = text.match(/(\d+)\s*damage\s*to\s*1\s*of\s*your\s*opponent'?s(?:\s*benched)?\s*pok/);
+  if (snipeMatch) {
+    const sd = parseInt(snipeMatch[1], 10);
+    const bench = opp.bench || [];
+    if (bench.length) {
+      const idx = bench
+        .map((c, i) => ({ i, score: (c.energyAttached?.length || 0) * 10 + ((c.def?.hp || 0) - (c.damage || 0)) }))
+        .sort((a, b) => b.score - a.score)[0]?.i ?? 0;
+      const target = bench[idx];
+      const updated = { ...target, damage: (target.damage || 0) + sd };
+      opp.bench = bench.map((c, i) => (i === idx ? updated : c));
+      extraLog.push(`${attacker.def.name} sniped ${target.def.name} for ${sd} damage.`);
+    }
+  }
+
+  // ── Damage to all of opponent's Pokémon (active + bench) ─
+  const allDamageMatch = text.match(/(\d+)\s*damage\s*to\s*each\s*of\s*your\s*opponent'?s\s*pok/);
+  if (allDamageMatch && !benchEachMatch) {
+    const n = parseInt(allDamageMatch[1], 10);
+    if (opp.activePokemon) opp.activePokemon = { ...opp.activePokemon, damage: (opp.activePokemon.damage || 0) + n };
+    opp.bench = opp.bench.map((c) => ({ ...c, damage: (c.damage || 0) + n }));
+    extraLog.push(`${n} damage to each of ${opp.name}'s Pokémon.`);
+  }
+
+  // ── Whirlwind / Gust of Wind / Catcher: force opponent to switch ─
+  // "Switch the Defending Pokémon with one of your opponent's Benched"
+  // is resolved by promoting whichever benched mon is most threatening to
+  // us — i.e. lowest remaining HP, so we can KO it next turn.
+  if (/switch (?:the )?defending pok(?:é|e)mon with one of your opponent'?s benched/.test(text)
+      || /switch one of your opponent'?s benched.*with (?:the )?(?:defending|active)/.test(text)) {
+    if (opp.bench.length > 0 && opp.activePokemon) {
+      const targetIdx = opp.bench
+        .map((c, i) => ({ i, score: -((c.def?.hp || 0) - (c.damage || 0)) }))
+        .sort((a, b) => b.score - a.score)[0]?.i ?? 0;
+      const newActive = opp.bench[targetIdx];
+      opp.bench = [...opp.bench.filter((_, i) => i !== targetIdx), { ...opp.activePokemon, specialCondition: null }];
+      opp.activePokemon = { ...newActive, specialCondition: null };
+      extraLog.push(`${defender.def.name} was forced out — ${newActive.def.name} is now Active.`);
+    }
+  }
+
+  // ── Search deck for a Basic Pokémon and put on bench ─
+  // "Search your deck for a Basic Pokémon and put it onto your Bench."
+  if (/search your deck for (?:a |up to \d+ )?basic pok(?:é|e)mon.*(?:bench|onto your bench)/.test(text)) {
+    if (ps.bench.length < 5) {
+      const basic = ps.deck.find((c) => c.def?.supertype === "Pokémon" && String(c.def?.stage || "").toLowerCase() === "basic");
+      if (basic) {
+        ps.deck = shuffle(ps.deck.filter((c) => c.instanceId !== basic.instanceId));
+        ps.bench = [...ps.bench, basic];
+        extraLog.push(`${ps.name} searched ${basic.def.name} onto the Bench.`);
+      }
+    }
+  }
+
+  // ── Attach an Energy from discard pile to the attacker ─
+  // "Attach a [Type]/Basic Energy card from your discard pile to this Pokémon."
+  if (/attach (?:a|an|\d+)\s*(?:basic\s*)?(?:[a-z]+\s*)?energy.*from your discard pile/.test(text)) {
+    const energyInDiscard = ps.discard.find((c) => c.def?.supertype === "Energy");
+    if (energyInDiscard) {
+      ps.discard = ps.discard.filter((c) => c.instanceId !== energyInDiscard.instanceId);
+      attacker.energyAttached = [...(attacker.energyAttached || []), energyInDiscard];
+      extraLog.push(`Reattached ${energyInDiscard.def.name} from discard.`);
+    }
+  }
+
+  // ── Put N damage counters on the Defending Pokémon ─
+  // Counters are 10 damage each per the printed rules.
+  const counterMatch = text.match(/put\s*(\d+)\s*damage\s*counters?\s*on\s*(?:the\s*)?defending/);
+  if (counterMatch) {
+    const counters = parseInt(counterMatch[1], 10);
+    const dmg = counters * 10;
+    if (opp.activePokemon) {
+      opp.activePokemon = { ...opp.activePokemon, damage: (opp.activePokemon.damage || 0) + dmg };
+      extraLog.push(`Placed ${counters} damage counter(s) on ${defender.def.name}.`);
+    }
+  }
+
+  // ── Reduce damage from opponent's next attack ─
+  // "During your opponent's next turn, any damage done to this Pokémon by
+  //  attacks is reduced by N (after applying Weakness and Resistance)."
+  const reduceMatch = text.match(/(?:any\s*)?damage\s*done\s*to\s*this\s*pok.*reduced\s*by\s*(\d+)/);
+  if (reduceMatch && ps.activePokemon) {
+    const n = parseInt(reduceMatch[1], 10);
+    ps.activePokemon = { ...ps.activePokemon, damageReductionUntilTurn: currentTurn + 1, damageReductionAmount: n };
+    extraLog.push(`${attacker.def.name} will take ${n} less damage from the next attack.`);
+  }
+
+  // ── Bonus damage if defender is a specific type ─
+  // "If the Defending Pokémon is [Type], this attack does N more damage."
+  const typeBonusMatch = text.match(/if\s*(?:the\s*)?defending\s*pok(?:é|e)mon\s*is\s*(?:a\s*)?(?:\[)?([a-z]+)(?:\])?[^.]*does\s*(\d+)\s*more/);
+  if (typeBonusMatch) {
+    const wantType = typeBonusMatch[1];
+    const more = parseInt(typeBonusMatch[2], 10);
+    const defType = String(defender.def?.energy_type || "").toLowerCase();
+    if (defType === wantType || (wantType === "lightning" && defType === "electric")) {
+      damage += more;
+      extraLog.push(`+${more} bonus vs ${wantType}-type defender.`);
     }
   }
 

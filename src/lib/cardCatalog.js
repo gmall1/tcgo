@@ -214,7 +214,48 @@ export function buildStarterDeck() {
 }
 
 const ENERGIES_CACHE_KEY = "local_tcg_live_energies_v1";
+const SPECIAL_ENERGIES_CACHE_KEY = "local_tcg_live_special_energies_v1";
 const TRAINERS_CACHE_KEY = "local_tcg_live_trainers_v1";
+
+// A Special Energy is anything in supertype:Energy whose subtype isn't `Basic`.
+// Detect via the registry's stored `rarity` / `subtypes` shape (we store the
+// upstream `subtypes` array on energy cards) plus a name-based heuristic for
+// canonical staples (DCE, Rainbow, etc.) so the UI works even before the
+// network fetch resolves.
+const SPECIAL_ENERGY_NAME_HINTS = [
+  "double colorless",
+  "rainbow",
+  "double dragon",
+  "rescue",
+  "metal energy", // some printings of Metal exist as Special variants
+  "darkness energy",
+  "scramble",
+  "boost",
+  "warp",
+  "recycle",
+  "potion",
+  "memory",
+  "powerful",
+  "twin",
+];
+function isSpecialEnergy(card) {
+  if (!card || card.card_type !== "energy") return false;
+  const subtypes = Array.isArray(card.subtypes) ? card.subtypes.map((s) => String(s).toLowerCase()) : [];
+  if (subtypes.includes("special")) return true;
+  if (subtypes.length && !subtypes.includes("basic")) return true;
+  const name = String(card.name || "").toLowerCase();
+  if (SPECIAL_ENERGY_NAME_HINTS.some((hint) => name.includes(hint))) return true;
+  // Some catalogs store an explicit `is_special` flag.
+  if (card.is_special_energy) return true;
+  return false;
+}
+export function getBasicEnergyCards() {
+  return getEnergyCards().filter((c) => !isSpecialEnergy(c));
+}
+export function getSpecialEnergyCards() {
+  return getEnergyCards().filter(isSpecialEnergy);
+}
+export { isSpecialEnergy };
 
 async function fetchGlobalByType({ query, cacheKey, pageSize = 120, ttl = 1000 * 60 * 60 * 6, localFallback = [] }) {
   const cached = readCache(cacheKey);
@@ -251,7 +292,21 @@ export async function fetchAllEnergiesCached() {
     query: "supertype:Energy subtypes:Basic",
     cacheKey: ENERGIES_CACHE_KEY,
     pageSize: 30,
-    localFallback: getEnergyCards(),
+    localFallback: getBasicEnergyCards(),
+  });
+}
+
+/**
+ * Fetch a broad selection of Special Energy cards (DCE, Rainbow, etc.) so
+ * they can sit alongside Basic Energy in the deck-builder's pinned rail.
+ * Cached for 6h so we don't hammer the API every page load.
+ */
+export async function fetchAllSpecialEnergiesCached() {
+  return fetchGlobalByType({
+    query: "supertype:Energy -subtypes:Basic",
+    cacheKey: SPECIAL_ENERGIES_CACHE_KEY,
+    pageSize: 80,
+    localFallback: getSpecialEnergyCards(),
   });
 }
 
