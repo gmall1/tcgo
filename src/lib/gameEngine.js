@@ -8,7 +8,7 @@
 // win conditions, and a skeleton for every trainer archetype.
 // ============================================================
 
-import { resolveCustomMechanic } from "./customMechanics";
+import { resolveCustomMechanic, CUSTOM_MECHANICS } from "./customMechanics";
 import { SPECIAL_CONDITIONS, ENERGY_TYPES } from "./gameConstants.js";
 export { SPECIAL_CONDITIONS, ENERGY_TYPES } from "./gameConstants.js";
 
@@ -859,6 +859,21 @@ export function performAttack(gs, attackIndex, options = {}) {
   if (Array.isArray(attack.custom_mechanics)) {
     for (const m of attack.custom_mechanics) {
       if (m?.id) mechEntries.push({ id: m.id, opts: m.opts || {} });
+    }
+  }
+  // Runtime Mechanic Builder lookup — picks up configs saved after the
+  // card was hydrated into the registry, so authoring in MechanicBuilder
+  // is reflected immediately without a page reload.
+  const cardId = attacker?.def?.id;
+  const attackName = attack?.name;
+  if (cardId && attackName) {
+    const exact = `card-mechanic:${cardId}:${attackName}`;
+    const wildcard = `card-mechanic:${cardId}:*`;
+    if (CUSTOM_MECHANICS[exact] && !mechEntries.some((m) => m.id === exact)) {
+      mechEntries.push({ id: exact, opts: {} });
+    }
+    if (CUSTOM_MECHANICS[wildcard] && !mechEntries.some((m) => m.id === wildcard)) {
+      mechEntries.push({ id: wildcard, opts: {} });
     }
   }
   if (mechEntries.length) {

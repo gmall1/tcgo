@@ -1,5 +1,6 @@
 import { STARTER_POOL, AI_DEFAULT_DECK_IDS, TYPE_COLORS } from "@/lib/cardData";
 import { fetchCard, fetchCardsByIds, fetchSets, searchCards } from "@/lib/pokemonTCGApi";
+import { injectCustomMechanicsForAttack } from "@/lib/cardMechanicConfigs";
 
 export { AI_DEFAULT_DECK_IDS };
 
@@ -73,15 +74,15 @@ function normalizeLocalCard(card, index) {
 // `custom_mechanics` here — doing so caused effects to fire twice (once in
 // the resolver and once by the mechanic dispatch). Explicit `custom_mechanics`
 // can still be set by the Mechanic Studio when authoring brand-new effects.
-function enrichAttacksWithMechanics(rawAttacks) {
+function enrichAttacksWithMechanics(rawAttacks, cardId, cardName) {
   if (!Array.isArray(rawAttacks)) return [];
-  return rawAttacks;
+  return rawAttacks.map((a) => injectCustomMechanicsForAttack(cardId, cardName, a));
 }
 
 export function normalizeApiCardToCatalog(card) {
   const cardType = card.supertype === "Pokémon" ? "pokemon" : String(card.supertype || "").toLowerCase();
   const primaryType = card.types?.[0] || null;
-  const enrichedAttacks = enrichAttacksWithMechanics(card.attacks);
+  const enrichedAttacks = enrichAttacksWithMechanics(card.attacks, card.id, card.name);
   const firstAttack = enrichedAttacks[0] || null;
   const secondAttack = enrichedAttacks[1] || null;
   const description =
