@@ -45,8 +45,11 @@ export default function Home() {
         {/* Mode cards */}
         <div className="grid grid-cols-2 gap-3">
           {[
-            { to: "/battle?mode=unlimited&ai=true", gradient: "from-red-900 to-black",         label: "UNLIMITED", sub: "All cards legal", Icon: Zap, delay: 0.18 },
-            { to: "/battle?mode=standard&ai=true",  gradient: "from-zinc-800 to-black",        label: "STANDARD",  sub: "Legal sets only", Icon: Shield, delay: 0.22 },
+            // Both mode tiles route through the lobby so the player always
+            // gets the deck picker before the match starts. The lobby reads
+            // the `mode` query param to pre-select the matching format.
+            { to: "/lobby?mode=unlimited", gradient: "from-red-900 to-black",  label: "UNLIMITED", sub: "All cards legal", Icon: Zap, delay: 0.18 },
+            { to: "/lobby?mode=standard",  gradient: "from-zinc-800 to-black", label: "STANDARD",  sub: "Legal sets only", Icon: Shield, delay: 0.22 },
           ].map(({ to, gradient, label, sub, Icon, delay }) => (
             <motion.div key={label} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay }}>
               <Link to={to}>
