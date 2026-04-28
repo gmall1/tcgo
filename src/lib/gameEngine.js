@@ -575,8 +575,73 @@ export function retreat(gs, playerKey, newActiveInstanceId, energyToDiscardIds) 
   };
 }
 
+// ── Resolve a prompt-driven attack into damage / self-damage ─
+// Called from `performAttack` after the player has answered the
+// attack's prompt (Birthday Pikachu yes/no, Unown height guess,
+// Rock-Paper-Scissors throw). Returns `{ damage, self_damage, log }`
+// describing the per-attack effect — the engine then plugs damage
+// into the normal calc pipeline.
+export function resolveAttackPrompt(prompt, answer, defender) {
+  if (!prompt) return null;
+  const ans = answer || {};
+  if (prompt.kind === "birthday") {
+    const isBirthday = Boolean(ans.isBirthday ?? ans.birthday);
+    const branch = isBirthday ? prompt.on_yes : prompt.on_no;
+    return {
+      damage: branch?.damage ?? 0,
+      self_damage: branch?.self_damage ?? 0,
+      log: isBirthday
+        ? "Happy birthday! Birthday Surprise lands."
+        : "Not your birthday — the attack does nothing.",
+    };
+  }
+  if (prompt.kind === "height-guess") {
+    const target = Number(defender?.def?.height_m ?? 1.0);
+    const guess = Number(ans.guess);
+    if (!Number.isFinite(guess)) {
+      return { damage: 0, log: "No guess provided — the attack does nothing." };
+    }
+    const distance = Math.abs(guess - target);
+    const tiers = Array.isArray(prompt.tiers) ? prompt.tiers : [];
+    for (const tier of tiers) {
+      if (distance <= Number(tier.within)) {
+        return {
+          damage: tier.damage ?? 0,
+          self_damage: tier.self_damage ?? 0,
+          log: `Guessed ${guess.toFixed(2)}m vs actual ${target.toFixed(2)}m — off by ${distance.toFixed(2)}m.`,
+        };
+      }
+    }
+    return { damage: 0, log: `Guessed ${guess.toFixed(2)}m vs actual ${target.toFixed(2)}m — off by ${distance.toFixed(2)}m.` };
+  }
+  if (prompt.kind === "rps") {
+    const me = String(ans.choice || "").toLowerCase();
+    const choices = ["rock", "paper", "scissors"];
+    if (!choices.includes(me)) return { damage: 0, log: "No throw chosen." };
+    const opp = ans.opponentChoice && choices.includes(String(ans.opponentChoice).toLowerCase())
+      ? String(ans.opponentChoice).toLowerCase()
+      : choices[Math.floor(Math.random() * 3)];
+    const wins =
+      (me === "rock" && opp === "scissors") ||
+      (me === "paper" && opp === "rock") ||
+      (me === "scissors" && opp === "paper");
+    let branch;
+    if (me === opp) branch = prompt.tie;
+    else if (wins) branch = prompt.win;
+    else branch = prompt.lose;
+    return {
+      damage: branch?.damage ?? 0,
+      self_damage: branch?.self_damage ?? 0,
+      log: `You threw ${me}, opponent threw ${opp} — ${
+        me === opp ? "tie" : wins ? "you win" : "you lose"
+      }.`,
+    };
+  }
+  return null;
+}
+
 // ── ATTACK ─────────────────────────────────────────────────
-export function performAttack(gs, attackIndex) {
+export function performAttack(gs, attackIndex, options = {}) {
   const playerKey = gs.activePlayer;
   const oppKey = getOpponentKey(gs);
   let ps = { ...gs[playerKey] };
@@ -599,6 +664,33 @@ export function performAttack(gs, attackIndex) {
   const attack = attacker.def.attacks?.[attackIndex];
   if (!attack) return { ...gs, _error: "Attack not found" };
   if (!canAffordAttack(attacker, attack)) return { ...gs, _error: "Not enough energy" };
+
+  // ── Prompt-based attacks (Birthday Pikachu, Unown height-guess,
+  // Rock-Paper-Scissors, etc.) — short-circuit to surface a pending
+  // prompt to the UI; the player calls performAttack again with
+  // `options.promptAnswer` to resume resolution.
+  if (attack.prompt && options.promptAnswer === undefined) {
+    return {
+      ...gs,
+      pendingAttack: {
+        playerKey,
+        attackIndex,
+        attackName: attack.name,
+        prompt: attack.prompt,
+        defenderName: defender?.def?.name || "the Defending Pokémon",
+        defenderHeight: defender?.def?.height_m ?? 1.0,
+      },
+    };
+  }
+  // Drop any stale pending prompt now that we're resuming.
+  if (gs.pendingAttack) {
+    newGs = { ...newGs, pendingAttack: null };
+  }
+  // Resolve the prompt's answer into per-shot effects (damage override,
+  // self-damage). Falls through to the normal attack loop below.
+  const promptEffect = attack.prompt
+    ? resolveAttackPrompt(attack.prompt, options.promptAnswer, defender)
+    : null;
 
   // Confused: flip coin; tails = 30 damage to self instead
   if (attacker.specialCondition === SPECIAL_CONDITIONS.CONFUSED) {
@@ -633,6 +725,12 @@ export function performAttack(gs, attackIndex) {
 
   // Calculate damage
   let baseDmg = attack.damageValue || 0;
+  // Prompt-driven attacks (Birthday / Unown / RPS) override the printed damage
+  // value with whatever the answered prompt resolved to.
+  if (promptEffect && typeof promptEffect.damage === "number") {
+    baseDmg = promptEffect.damage;
+    if (promptEffect.log) newLog.push(promptEffect.log);
+  }
   // PlusPower / Defender-style stacked modifier applied by trainers earlier this turn.
   const preAttackBonus = attacker.damageBonusNextAttack || 0;
   baseDmg += preAttackBonus;
@@ -732,6 +830,15 @@ export function performAttack(gs, attackIndex) {
     newDefender = opp.activePokemon || newDefender;
   }
 
+  // Prompt-driven self-damage (e.g. RPS lose case where the attacker
+  // bonks itself for 20). Applied to whichever attacker reference is
+  // current — it may have been mutated by the resolver.
+  if (promptEffect && Number(promptEffect.self_damage) > 0 && ps.activePokemon) {
+    const sd = Number(promptEffect.self_damage);
+    ps.activePokemon = { ...ps.activePokemon, damage: (ps.activePokemon.damage || 0) + sd };
+    newLog.push(`${ps.activePokemon.def.name} took ${sd} damage to itself.`);
+  }
+
   // Check KO
   if (newDefender && isKnockedOut(newDefender)) {
     newLog.push(`${newDefender.def.name} was Knocked Out!`);
@@ -749,6 +856,21 @@ export function performAttack(gs, attackIndex) {
     if (opp.bench.length > 0) {
       newLog.push(`${opp.name} must send up a new Active Pokémon.`);
     }
+  }
+
+  // Self-KO from prompt-driven self-damage (or from any earlier mutation
+  // pushing damage past HP). The opponent collects prizes for the KO.
+  if (ps.activePokemon && isKnockedOut(ps.activePokemon)) {
+    const koed = ps.activePokemon;
+    newLog.push(`${koed.def.name} was Knocked Out!`);
+    ps.discard = [...ps.discard, koed, ...(koed.energyAttached || [])];
+    if (koed.toolAttached) ps.discard.push(koed.toolAttached);
+    ps.activePokemon = null;
+    const prizesTaken = getPrizesForKO(koed);
+    const oppPrizes = opp.prizeCards.slice(0, prizesTaken);
+    opp.hand = [...opp.hand, ...oppPrizes];
+    opp.prizeCards = opp.prizeCards.slice(prizesTaken);
+    newLog.push(`${opp.name} took ${prizesTaken} Prize card(s)!`);
   }
 
   if (ps.activePokemon) {
@@ -893,8 +1015,25 @@ function resolveAttackText(attack, attacker, defender, damage, ps, opp, log, gs)
       damage += heads * 10;
       extraLog.push(`+${heads * 10} bonus from coin flips.`);
     }
-    if (text.includes("damage on itself")) {
-      attacker.damage += 10;
+    // "If tails, Foo does N damage on itself." Pull the actual N from the text
+    // so different cards (Pikachu = 10, Zapdos Thunder = 30, etc.) hurt for the
+    // right amount. Falls back to 10 for backwards compat.
+    if (flips[0] === "tails" && text.includes("damage on itself")) {
+      const m = text.match(/(\d+)\s*damage\s*on\s*itself/i);
+      const sd = m ? Number(m[1]) : 10;
+      attacker.damage += sd;
+      extraLog.push(`${attacker.def.name} did ${sd} damage to itself.`);
+    }
+  }
+
+  // "Foo does N damage to itself" — flat self-damage outside a coin flip
+  // (Chansey Double-edge, Zapdos Thunderbolt-style discard, etc.).
+  if (!text.includes("flip a coin")) {
+    const m = text.match(/(\d+)\s*damage\s*to\s*itself/i);
+    if (m) {
+      const sd = Number(m[1]);
+      attacker.damage += sd;
+      extraLog.push(`${attacker.def.name} did ${sd} damage to itself.`);
     }
   }
 

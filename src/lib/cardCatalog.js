@@ -1,6 +1,5 @@
 import { STARTER_POOL, AI_DEFAULT_DECK_IDS, TYPE_COLORS } from "@/lib/cardData";
 import { fetchCard, fetchCardsByIds, fetchSets, searchCards } from "@/lib/pokemonTCGApi";
-import { inferMechanicsFromAttackText } from "@/lib/customMechanics";
 
 export { AI_DEFAULT_DECK_IDS };
 
@@ -68,18 +67,15 @@ function normalizeLocalCard(card, index) {
   };
 }
 
+// Engine `resolveAttackText` (in gameEngine.js) is the source of truth for
+// auto-resolving rules text on API-imported cards (heal, draw, status, coin
+// flip, bench spread, etc.). We deliberately do NOT auto-tag attacks with
+// `custom_mechanics` here — doing so caused effects to fire twice (once in
+// the resolver and once by the mechanic dispatch). Explicit `custom_mechanics`
+// can still be set by the Mechanic Studio when authoring brand-new effects.
 function enrichAttacksWithMechanics(rawAttacks) {
   if (!Array.isArray(rawAttacks)) return [];
-  return rawAttacks.map((atk) => {
-    if (!atk) return atk;
-    const mechanics = inferMechanicsFromAttackText(atk.text || "");
-    if (!mechanics.length) return atk;
-    const existing = Array.isArray(atk.custom_mechanics) ? atk.custom_mechanics : [];
-    return {
-      ...atk,
-      custom_mechanics: [...existing, ...mechanics],
-    };
-  });
+  return rawAttacks;
 }
 
 export function normalizeApiCardToCatalog(card) {

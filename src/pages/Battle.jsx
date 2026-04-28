@@ -37,6 +37,7 @@ import {
 } from "@/lib/multiplayerSync";
 import { soundManager } from "@/lib/soundManager";
 import CardFlowBackground from "@/components/home/CardFlowBackground";
+import AttackPromptModal from "@/components/battle/AttackPromptModal";
 
 const AI_NAME = "Trainer Sparky";
 // Slower, more "thoughtful" pacing with variance so turns don't feel robotic.
@@ -1040,13 +1041,20 @@ export default function Battle() {
     await applyAndSync(next);
   }, [isMyTurn, gameState, applyAndSync]);
 
-  const handleAttack = useCallback(async (attackIndex) => {
+  const handleAttack = useCallback(async (attackIndex, options = {}) => {
     if (!isMyTurn || !gameState) return;
     try {
       const prevOppDmg = gameState[opponentSide]?.activePokemon?.damage || 0;
       const prevOppActive = gameState[opponentSide]?.activePokemon;
       soundManager.attackHit();
-      const next = autoPromoteAll(performAttack(gameState, attackIndex));
+      const raw = performAttack(gameState, attackIndex, options);
+      // Prompt-driven attacks (Birthday Pikachu, Unown, RPS) short-circuit
+      // and surface a `pendingAttack` — render the modal and wait.
+      if (raw?.pendingAttack && options.promptAnswer === undefined) {
+        setGameState(raw);
+        return;
+      }
+      const next = autoPromoteAll(raw);
       const newOppDmg = next[opponentSide]?.activePokemon?.damage || 0;
       const dealt = newOppDmg - prevOppDmg;
       if (dealt > 0) {
@@ -1063,6 +1071,17 @@ export default function Battle() {
       if (roomId) await syncGameState(roomId, next).catch(() => {});
     } catch (err) { console.error("Attack error:", err); }
   }, [isMyTurn, gameState, opponentSide, roomId]);
+
+  const resolvePendingPrompt = useCallback((answer) => {
+    if (!gameState?.pendingAttack) return;
+    const idx = gameState.pendingAttack.attackIndex;
+    handleAttack(idx, { promptAnswer: answer });
+  }, [gameState, handleAttack]);
+
+  const cancelPendingPrompt = useCallback(() => {
+    if (!gameState?.pendingAttack) return;
+    setGameState({ ...gameState, pendingAttack: null });
+  }, [gameState]);
 
   const winnerLabel = useMemo(() => {
     if (!gameState?.winner) return null;
@@ -1123,6 +1142,13 @@ export default function Battle() {
     <div className="min-h-screen bg-background pb-10 relative overflow-hidden">
       {/* Animated crimson / black satin playmat background */}
       <CardFlowBackground variant="satin" tint="crimson" intensity={0.5} />
+      {gameState?.pendingAttack && (
+        <AttackPromptModal
+          pending={gameState.pendingAttack}
+          onAnswer={resolvePendingPrompt}
+          onCancel={cancelPendingPrompt}
+        />
+      )}
       <div className="relative z-10">
       {/* Turn banner */}
       <AnimatePresence>

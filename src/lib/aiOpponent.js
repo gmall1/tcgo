@@ -202,11 +202,37 @@ export function performAITurn(gs) {
     });
     if (bestIdx >= 0) {
       state = performAttack(state, bestIdx);
+      // Prompt-driven attacks (Birthday / Unown / RPS) short-circuit
+      // performAttack and surface a `pendingAttack` instead of resolving.
+      // For the AI, auto-answer the prompt and resume.
+      if (state.pendingAttack) {
+        const answer = autoAnswerPrompt(state.pendingAttack, state[oppKey]?.activePokemon);
+        state = performAttack(state, state.pendingAttack.attackIndex, { promptAnswer: answer });
+      }
       return state;
     }
   }
 
   return endTurn(state);
+}
+
+// Provide a sensible default answer for prompt-driven attacks when the
+// AI is the attacker. Birthday: pretend it IS the AI's birthday so the
+// attack hits. Height-guess: guess the defender's actual height ±0.2m.
+// RPS: random throw, no peeking at the opponent's choice.
+function autoAnswerPrompt(pending, defender) {
+  const kind = pending?.prompt?.kind;
+  if (kind === "birthday") return { isBirthday: true };
+  if (kind === "height-guess") {
+    const target = defender?.def?.height_m ?? pending.defenderHeight ?? 1.0;
+    const jitter = (Math.random() - 0.5) * 0.4;
+    return { guess: Math.max(0.1, Number(target) + jitter) };
+  }
+  if (kind === "rps") {
+    const choices = ["rock", "paper", "scissors"];
+    return { choice: choices[Math.floor(Math.random() * 3)] };
+  }
+  return {};
 }
 
 export function getAICommentary(isKO, hasStatus, cardName) {
