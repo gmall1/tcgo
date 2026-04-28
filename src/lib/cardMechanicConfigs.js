@@ -87,7 +87,13 @@ export function registerConfigWithEngine(config) {
     // Clone so primitives can mutate freely without reaching back into the
     // shared engine state; the engine merges back what we return.
     const cloned = JSON.parse(JSON.stringify(gs));
-    const next = runMechanicConfig(cloned, pk, config) || cloned;
+    // Inherit the running bonusDamage tally — when an attack is wired up to
+    // both an exact-match and a wildcard config, performAttack invokes us
+    // twice in sequence with the previous mechanic's `bonusDamage` already
+    // merged onto `gs`. Without this, the second pass would reset the
+    // accumulator to 0 and the first pass's `+N` would silently disappear.
+    const carry = Number(cloned.bonusDamage || 0);
+    const next = runMechanicConfig(cloned, pk, config, { bonusDamage: carry }) || cloned;
     const log = (next._mechanicLog || []).join(" ");
     delete next._mechanicLog;
     return { ...next, extraLog: log };

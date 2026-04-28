@@ -1089,7 +1089,18 @@ function resolveAttackText(attack, attacker, defender, damage, ps, opp, log, gs)
       opp.activePokemon = { ...opp.activePokemon, specialCondition: SPECIAL_CONDITIONS.CONFUSED };
       extraLog.push(`${defender.def.name} is now Confused!`);
     }
-    if (text.includes("for each heads") || text.includes("heads, this attack does")) {
+    // "X damage times the number of heads" / "X damage for each heads" /
+    // "X damage for each head". The printed N is the *per-head* value, so
+    // total damage is heads × N — replace the base rather than adding to it.
+    // Falls back to the legacy `+ heads * 10` behaviour for vague phrasings.
+    const perHeadMatch =
+      text.match(/(\d+)\s*damage\s*times\s*the\s*number\s*of\s*heads/i) ||
+      text.match(/(\d+)\s*damage\s*for\s*each\s*heads?\b/i);
+    if (perHeadMatch) {
+      const perHead = Number(perHeadMatch[1]);
+      damage = heads * perHead;
+      extraLog.push(`Total damage from coins: ${damage} (${heads} heads × ${perHead}).`);
+    } else if (text.includes("for each heads") || text.includes("heads, this attack does")) {
       damage += heads * 10;
       extraLog.push(`+${heads * 10} bonus from coin flips.`);
     }
