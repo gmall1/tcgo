@@ -1,7 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { Swords, Layers, FolderOpen, Zap, Users, Shield, RotateCcw, Coins, ShoppingBag, Star, Trophy } from "lucide-react";
+import { Swords, Layers, FolderOpen, Zap, Users, Shield, ShoppingBag, Star, Trophy, Wand2, Radio } from "lucide-react";
 import BottomNav from "@/components/tcg/BottomNav";
 import CardFlowBackground from "@/components/home/CardFlowBackground";
 
@@ -112,6 +112,52 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Online play */}
+        <div>
+          <p className="font-display text-[11px] text-muted-foreground font-bold uppercase tracking-[0.15em] mb-3">Online Play</p>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { to: "/lobby", Icon: Radio, label: "Online Rooms", sub: "Create, share, and join" },
+              { to: "/leaderboard", Icon: Users, label: "Leaderboard", sub: "Track top players" },
+            ].map(({ to, Icon, label, sub }) => (
+              <Link key={to} to={to}>
+                <div className="bg-card border border-border rounded-xl p-4 flex items-center gap-3 hover:bg-secondary/60 transition-colors">
+                  <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
+                    <Icon className="w-4 h-4 text-foreground/70" />
+                  </div>
+                  <div>
+                    <p className="font-body font-semibold text-sm">{label}</p>
+                    <p className="text-muted-foreground text-[11px] font-body">{sub}</p>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* Deck lab */}
+        <div>
+          <p className="font-display text-[11px] text-muted-foreground font-bold uppercase tracking-[0.15em] mb-3">Deck Lab</p>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { to: "/deck-builder", Icon: Wand2, label: "Deck Builder", sub: "Tune your list" },
+              { to: "/ai-deck-builder", Icon: Zap, label: "AI Deck Builder", sub: "Generate meta-ready decks" },
+            ].map(({ to, Icon, label, sub }) => (
+              <Link key={to} to={to}>
+                <div className="bg-card border border-border rounded-xl p-4 flex items-center gap-3 hover:bg-secondary/60 transition-colors">
+                  <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
+                    <Icon className="w-4 h-4 text-foreground/70" />
+                  </div>
+                  <div>
+                    <p className="font-body font-semibold text-sm">{label}</p>
+                    <p className="text-muted-foreground text-[11px] font-body">{sub}</p>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+
         {/* Featured deck */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
           <Link to="/decks">
@@ -126,29 +172,6 @@ export default function Home() {
           </Link>
         </motion.div>
 
-        {/* Features list */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
-          <div className="bg-card border border-border rounded-2xl p-4">
-            <p className="font-display text-[11px] text-muted-foreground font-bold uppercase tracking-[0.15em] mb-4">Engine Features</p>
-            <div className="space-y-3">
-              {[
-                [Swords,      "Full battle rules — prize cards, bench, active"],
-                [Layers,      "Live PokemonTCG.io card database"],
-                [Users,       "Multiplayer via room codes"],
-                [Shield,      "Special conditions: Poison, Burn, Sleep, Paralyze, Confuse"],
-                [Coins,       "Coin flips for attack effects"],
-                [RotateCcw,   "Weakness and resistance calculations"],
-              ].map(([Icon, text]) => (
-                <div key={text} className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
-                    <Icon className="w-3.5 h-3.5 text-foreground/60" />
-                  </div>
-                  <span className="text-sm font-body text-foreground/70">{text}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </motion.div>
       </div>
 
       <BottomNav />
