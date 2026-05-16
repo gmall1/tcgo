@@ -630,6 +630,7 @@ export default function Battle() {
   // so the AI match uses the player's chosen deck instead of a generic
   // starter. Falls back to the starter when the deck can't be found.
   const playerDeckId = urlParams.get("deckId");
+  const aiLevel = urlParams.get("aiLevel") || "balanced";
 
   const [loading, setLoading] = useState(true);
   const [roomData, setRoomData] = useState(null);
@@ -743,7 +744,9 @@ export default function Battle() {
           // buildAIDeck hydrates from the live card registry and falls back
           // to the curated pool when the registry is sparse.
           const personalities = ["aggressive", "balanced", "stall"];
-          const personality = personalities[Math.floor(Math.random() * personalities.length)];
+          const personality = personalities.includes(aiLevel)
+            ? aiLevel
+            : personalities[Math.floor(Math.random() * personalities.length)];
           // Honor the deck the player picked in the lobby (?deckId=...).
           // If the deck can't be loaded for any reason, fall back to the
           // curated starter deck so the match still seeds.
@@ -814,7 +817,7 @@ export default function Battle() {
     };
     init();
     return () => { active = false; if (typeof unsubscribe === "function") unsubscribe(); };
-  }, [isAI, roomId, playerSide, mode, seedRoomGameState, playerDeckId]);
+  }, [isAI, roomId, playerSide, mode, seedRoomGameState, playerDeckId, aiLevel]);
 
   // Auto-set active Pokémon from setup phase
   useEffect(() => {

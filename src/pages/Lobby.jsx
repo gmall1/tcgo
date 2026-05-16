@@ -67,6 +67,9 @@ export default function Lobby() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [selectedDeckId, setSelectedDeckId] = useState(AUTO_DECK_ID);
+  const [autoDeckSeed, setAutoDeckSeed] = useState(0);
+  const [aiLevel, setAiLevel] = useState("balanced");
+  const [aiSpeed, setAiSpeed] = useState("normal");
   const [networkEnabled, setNetworkEnabled] = useState(isNetworkAvailable());
   const [backendUrl, setBackendUrlState] = useState(getBackendUrl());
   const [backendStatus, setBackendStatus] = useState(null);
@@ -139,12 +142,17 @@ export default function Lobby() {
   // auto-deck. Always resolve via card_ids.
   const resolveDeck = useMemo(() => {
     return () => {
-      if (selectedDeckId === AUTO_DECK_ID) return randomAutoDeck();
+      if (selectedDeckId === AUTO_DECK_ID) {
+        // autoDeckSeed intentionally lives in deps so "Shuffle Auto Deck"
+        // forces a fresh randomized build for this run.
+        void autoDeckSeed;
+        return randomAutoDeck();
+      }
       const deck = decks.find((d) => d.id === selectedDeckId);
       if (!deck?.card_ids?.length) return randomAutoDeck();
       return deck.card_ids;
     };
-  }, [decks, selectedDeckId]);
+  }, [autoDeckSeed, decks, selectedDeckId]);
 
   const handleCreate = async (selectedMode) => {
     try {
@@ -179,6 +187,8 @@ export default function Lobby() {
     const params = new URLSearchParams();
     params.set("mode", selectedMode);
     params.set("ai", "true");
+    params.set("aiLevel", aiLevel);
+    params.set("aiSpeed", aiSpeed);
     if (selectedDeckId && selectedDeckId !== AUTO_DECK_ID) {
       params.set("deckId", selectedDeckId);
     }
@@ -400,6 +410,14 @@ export default function Lobby() {
                       {deck.name || "Untitled"}
                     </button>
                   ))}
+                  {selectedDeckId === AUTO_DECK_ID && (
+                    <button
+                      onClick={() => setAutoDeckSeed(Date.now())}
+                      className="px-3 py-1.5 rounded-full text-xs font-body border border-border bg-background hover:bg-secondary"
+                    >
+                      Shuffle Auto Deck
+                    </button>
+                  )}
                   {decks.length === 0 && (
                     <button
                       onClick={() => navigate("/deck-builder")}
@@ -427,6 +445,53 @@ export default function Lobby() {
                     {label}
                   </button>
                 ))}
+              </div>
+
+
+
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs font-body text-muted-foreground mb-1.5 uppercase tracking-widest">AI style</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {[
+                      ["aggressive", "Aggro"],
+                      ["balanced", "Balanced"],
+                      ["stall", "Control"],
+                    ].map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setAiLevel(value)}
+                        className={`px-3 py-1.5 rounded-full text-xs font-body border ${
+                          aiLevel === value ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-body text-muted-foreground mb-1.5 uppercase tracking-widest">AI pace</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {[
+                      ["fast", "Fast"],
+                      ["normal", "Normal"],
+                      ["slow", "Cinematic"],
+                    ].map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setAiSpeed(value)}
+                        className={`px-3 py-1.5 rounded-full text-xs font-body border ${
+                          aiSpeed === value ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               <div className="grid sm:grid-cols-2 gap-3">
