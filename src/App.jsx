@@ -15,14 +15,12 @@ import Battle from "@/pages/Battle";
 import Admin from "@/pages/Admin";
 import AIDeckBuilder from "@/pages/AIDeckBuilder";
 import DeckShare from "@/pages/DeckShare";
-import CardMechanicFactory from "@/pages/CardMechanicFactory";
 import SoundAdmin from "@/pages/SoundAdmin";
 import PackShop from "@/pages/PackShop";
 import BattlePass from "@/pages/BattlePass";
 import Premium from "@/pages/Premium";
-import MechanicStudio from "@/pages/MechanicStudio";
-import MechanicBuilder from "@/pages/MechanicBuilder";
 import { registerAllSavedCardMechanics } from "@/lib/cardMechanicConfigs";
+import { syncLatestReleases } from "@/lib/releaseSync";
 
 function AppRoutes() {
   return (
@@ -36,13 +34,10 @@ function AppRoutes() {
       <Route path="/admin" element={<Admin />} />
       <Route path="/ai-deck-builder" element={<AIDeckBuilder />} />
       <Route path="/deck-share" element={<DeckShare />} />
-      <Route path="/card-mechanic-factory" element={<CardMechanicFactory />} />
       <Route path="/sound-admin" element={<SoundAdmin />} />
       <Route path="/pack-shop" element={<PackShop />} />
       <Route path="/battle-pass" element={<BattlePass />} />
       <Route path="/premium" element={<Premium />} />
-      <Route path="/mechanic-studio" element={<MechanicStudio />} />
-      <Route path="/mechanic-builder" element={<MechanicBuilder />} />
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );
@@ -58,6 +53,14 @@ try {
   registerAllSavedCardMechanics();
 } catch (err) {
   console.warn("Failed to register saved card mechanics", err);
+}
+
+try {
+  syncLatestReleases().catch((err) => {
+    console.warn("Release sync skipped", err?.message || err);
+  });
+} catch (err) {
+  console.warn("Failed to start release sync", err);
 }
 
 export default function App() {

@@ -8,6 +8,7 @@
 
 import { registerCustomMechanic } from "@/lib/customMechanics";
 import { runMechanicConfig, getPrimitiveById, getGuardById } from "@/lib/mechanicPrimitives";
+import { getAutoMechanicMap } from "@/lib/releaseSync";
 
 const STORAGE_KEY = "tcg_card_mechanic_configs_v1";
 
@@ -148,14 +149,27 @@ export function injectCustomMechanicsForAttack(cardId, cardName, attack) {
   const exact = getConfig(cardId, attack.name);
   const wildcard = getConfig(cardId, "*");
   const match = exact || wildcard;
-  if (!match || !match.enabled) return attack;
-  const id = mechanicIdFor(match.cardId, match.attackName);
   const existing = Array.isArray(attack.custom_mechanics) ? attack.custom_mechanics : [];
-  if (existing.some((m) => m?.id === id)) return attack;
-  return {
-    ...attack,
-    custom_mechanics: [...existing, { id, opts: {} }],
-    _customMechanicCardId: cardId,
-    _customMechanicCardName: cardName,
-  };
+
+  let next = { ...attack, custom_mechanics: [...existing] };
+
+  if (match?.enabled) {
+    const id = mechanicIdFor(match.cardId, match.attackName);
+    if (!next.custom_mechanics.some((m) => m?.id === id)) {
+      next.custom_mechanics.push({ id, opts: {} });
+    }
+    next._customMechanicCardId = cardId;
+    next._customMechanicCardName = cardName;
+  }
+
+  const autoMap = getAutoMechanicMap();
+  const autoEntries = autoMap[`${cardId}:${attack.name}`] || [];
+  for (const entry of autoEntries) {
+    if (!entry?.id) continue;
+    if (next.custom_mechanics.some((m) => m?.id === entry.id && JSON.stringify(m?.opts || {}) === JSON.stringify(entry?.opts || {}))) continue;
+    next.custom_mechanics.push({ id: entry.id, opts: entry.opts || {} });
+  }
+
+  if (!next.custom_mechanics.length) return attack;
+  return next;
 }

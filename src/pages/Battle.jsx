@@ -1157,9 +1157,10 @@ export default function Battle() {
   );
 
   return (
-    <div className="min-h-screen bg-background pb-10 relative overflow-hidden">
+    <div className="min-h-screen bg-background pb-10 relative overflow-hidden battle-aurora">
       {/* Animated crimson / black satin playmat background */}
       <CardFlowBackground variant="satin" tint="crimson" intensity={0.5} />
+      <div className="battle-energy-particles pointer-events-none absolute inset-0 z-0" />
       {gameState?.pendingAttack && (
         <AttackPromptModal
           pending={gameState.pendingAttack}

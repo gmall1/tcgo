@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Save, Bot, Shuffle, Sparkles, Hammer, Music, Search } from "lucide-react";
+import { ArrowLeft, Save, Bot, Shuffle, Sparkles, Music, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -275,21 +275,12 @@ export default function Admin() {
         <div className="mt-5 space-y-3">
           <p className="text-sm font-display font-bold uppercase tracking-widest text-muted-foreground">Quick Tools</p>
           <div className="grid grid-cols-2 gap-3">
-            <Link to="/mechanic-studio">
+            <Link to="/pack-shop">
               <div className="rounded-xl border border-border bg-card p-4 hover:bg-secondary/60 transition-colors flex items-start gap-3">
                 <Sparkles className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-body font-semibold text-sm">Mechanic Studio</p>
-                  <p className="text-[11px] text-muted-foreground">Real-time pipeline & testing</p>
-                </div>
-              </div>
-            </Link>
-            <Link to="/card-mechanic-factory">
-              <div className="rounded-xl border border-border bg-card p-4 hover:bg-secondary/60 transition-colors flex items-start gap-3">
-                <Hammer className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-body font-semibold text-sm">Mechanic Factory</p>
-                  <p className="text-[11px] text-muted-foreground">Tag cards by mechanics</p>
+                  <p className="font-body font-semibold text-sm">Pack Shop</p>
+                  <p className="text-[11px] text-muted-foreground">Open boosters and inspect pulls</p>
                 </div>
               </div>
             </Link>
