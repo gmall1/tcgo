@@ -135,3 +135,32 @@
   .card-flow-drift,
   .card-flow-waves { animation: none; }
 }
+
+@keyframes battleAuroraPulse {
+  0% { opacity: 0.25; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(1.04); }
+  100% { opacity: 0.25; transform: scale(1); }
+}
+
+@keyframes battleParticleDrift {
+  0% { transform: translate3d(-8%, 8%, 0); }
+  100% { transform: translate3d(8%, -8%, 0); }
+}
+
+.battle-aurora::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  background: radial-gradient(circle at 20% 20%, rgba(239, 68, 68, 0.12), transparent 52%),
+              radial-gradient(circle at 80% 80%, rgba(59, 130, 246, 0.1), transparent 48%);
+  filter: blur(40px);
+  animation: battleAuroraPulse 8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.battle-energy-particles {
+  background-image: radial-gradient(rgba(255,255,255,0.18) 1px, transparent 1px);
+  background-size: 36px 36px;
+  animation: battleParticleDrift 16s linear infinite alternate;
+  opacity: 0.45;
+}

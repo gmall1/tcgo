@@ -1,7 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { Swords, Layers, FolderOpen, Zap, Users, Shield, RotateCcw, Coins, Wrench, Cpu } from "lucide-react";
+import { Swords, Layers, FolderOpen, Zap, Users, Shield, ShoppingBag, Star, Trophy, Wand2, Radio } from "lucide-react";
 import BottomNav from "@/components/tcg/BottomNav";
 import CardFlowBackground from "@/components/home/CardFlowBackground";
 
@@ -89,13 +89,13 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Tools */}
+        {/* Live features */}
         <div>
-          <p className="font-display text-[11px] text-muted-foreground font-bold uppercase tracking-[0.15em] mb-3">Tools</p>
+          <p className="font-display text-[11px] text-muted-foreground font-bold uppercase tracking-[0.15em] mb-3">Live Features</p>
           <div className="grid grid-cols-2 gap-3">
             {[
-              { to: "/mechanic-builder", Icon: Wrench, label: "Mechanic Builder", sub: "Wire effects card-by-card" },
-              { to: "/mechanic-studio", Icon: Cpu, label: "Mechanic Studio", sub: "Author + validate logic" },
+              { to: "/pack-shop", Icon: ShoppingBag, label: "Pack Shop", sub: "Open boosters" },
+              { to: "/battle-pass", Icon: Trophy, label: "Battle Pass", sub: "Earn season rewards" },
             ].map(({ to, Icon, label, sub }) => (
               <Link key={to} to={to}>
                 <div className="bg-card border border-border rounded-xl p-4 flex items-center gap-3 hover:bg-secondary/60 transition-colors">
@@ -112,29 +112,66 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Features list */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
-          <div className="bg-card border border-border rounded-2xl p-4">
-            <p className="font-display text-[11px] text-muted-foreground font-bold uppercase tracking-[0.15em] mb-4">Engine Features</p>
-            <div className="space-y-3">
-              {[
-                [Swords,      "Full battle rules — prize cards, bench, active"],
-                [Layers,      "Live PokemonTCG.io card database"],
-                [Users,       "Multiplayer via room codes"],
-                [Shield,      "Special conditions: Poison, Burn, Sleep, Paralyze, Confuse"],
-                [Coins,       "Coin flips for attack effects"],
-                [RotateCcw,   "Weakness and resistance calculations"],
-              ].map(([Icon, text]) => (
-                <div key={text} className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
-                    <Icon className="w-3.5 h-3.5 text-foreground/60" />
+        {/* Online play */}
+        <div>
+          <p className="font-display text-[11px] text-muted-foreground font-bold uppercase tracking-[0.15em] mb-3">Online Play</p>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { to: "/lobby", Icon: Radio, label: "Online Rooms", sub: "Create, share, and join" },
+              { to: "/leaderboard", Icon: Users, label: "Leaderboard", sub: "Track top players" },
+            ].map(({ to, Icon, label, sub }) => (
+              <Link key={to} to={to}>
+                <div className="bg-card border border-border rounded-xl p-4 flex items-center gap-3 hover:bg-secondary/60 transition-colors">
+                  <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
+                    <Icon className="w-4 h-4 text-foreground/70" />
                   </div>
-                  <span className="text-sm font-body text-foreground/70">{text}</span>
+                  <div>
+                    <p className="font-body font-semibold text-sm">{label}</p>
+                    <p className="text-muted-foreground text-[11px] font-body">{sub}</p>
+                  </div>
                 </div>
-              ))}
-            </div>
+              </Link>
+            ))}
           </div>
+        </div>
+
+        {/* Deck lab */}
+        <div>
+          <p className="font-display text-[11px] text-muted-foreground font-bold uppercase tracking-[0.15em] mb-3">Deck Lab</p>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { to: "/deck-builder", Icon: Wand2, label: "Deck Builder", sub: "Tune your list" },
+              { to: "/ai-deck-builder", Icon: Zap, label: "AI Deck Builder", sub: "Generate meta-ready decks" },
+            ].map(({ to, Icon, label, sub }) => (
+              <Link key={to} to={to}>
+                <div className="bg-card border border-border rounded-xl p-4 flex items-center gap-3 hover:bg-secondary/60 transition-colors">
+                  <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
+                    <Icon className="w-4 h-4 text-foreground/70" />
+                  </div>
+                  <div>
+                    <p className="font-body font-semibold text-sm">{label}</p>
+                    <p className="text-muted-foreground text-[11px] font-body">{sub}</p>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* Featured deck */}
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+          <Link to="/decks">
+            <div className="relative overflow-hidden rounded-2xl border border-yellow-400/20 bg-gradient-to-br from-yellow-600/20 via-card to-card p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Star className="w-4 h-4 text-yellow-400" />
+                <p className="font-display text-[11px] font-bold tracking-[0.15em] uppercase text-yellow-300">Featured Deck</p>
+              </div>
+              <p className="font-display text-xl font-black">Thunder Rush</p>
+              <p className="text-xs font-body text-muted-foreground mt-1">Aggro Lightning premade deck tuned for fast ladder wins.</p>
+            </div>
+          </Link>
         </motion.div>
+
       </div>
 
       <BottomNav />
