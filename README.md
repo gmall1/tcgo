@@ -18,10 +18,20 @@ AI opponent, and optional online multiplayer via a small FastAPI backend.
 
 ## Quick start
 
+This repo is **pnpm-only** (lockfile + preinstall guard).  
+If pnpm is missing, run:
+
+```bash
+corepack enable
+corepack prepare pnpm@latest --activate
+```
+
 ```bash
 pnpm install
 pnpm dev
 ```
+
+> Note: `next-themes` is just a React theming dependency. This app is built with **Vite** (not Next.js).
 
 Open the local URL Vite prints. Sessions, decks, and ranked results live in
 `localStorage`.

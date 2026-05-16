@@ -3,7 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
   "scripts": {
+    "preinstall": "node -e \"if(!/pnpm\\//.test(process.env.npm_config_user_agent||'')){console.error('❌ Use pnpm only: run `corepack enable && pnpm install`');process.exit(1)}\"",
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint . --quiet",
